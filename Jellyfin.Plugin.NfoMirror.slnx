@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Jellyfin.Plugin.NfoMirror/Jellyfin.Plugin.NfoMirror.csproj" />
+  <Project Path="Jellyfin.Plugin.NfoMirror.Tests/Jellyfin.Plugin.NfoMirror.Tests.csproj" />
+</Solution>

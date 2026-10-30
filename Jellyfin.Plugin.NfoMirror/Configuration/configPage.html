@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>NFO Mirror</title>
+</head>
+<body>
+    <div id="NfoMirrorConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+        <div data-role="content">
+            <div class="content-primary">
+                <div id="nfoRootError" style="display: none; background-color: #fdecea; border: 1px solid #c62828; border-radius: .25em; color: #8b1a1a; padding: .75em 1em; margin-bottom: 1em;"></div>
+
+                <div id="nfoSaversWarning" style="display: none; background-color: #fff8e1; border: 1px solid #f9a825; border-radius: .25em; color: #5d4037; padding: .75em 1em; margin-bottom: 1em;">
+                    <div style="font-weight: 600; margin-bottom: .5em;">Built-in Nfo still enabled</div>
+                    <ul id="nfoSaversList" style="margin: 0 0 .5em; padding-left: 1.25em;"></ul>
+                    <div>Open Dashboard &gt; Libraries &gt; (library) and untick Nfo under Metadata savers and Metadata readers. NFO Mirror never changes library settings itself.</div>
+                </div>
+
+                <form id="NfoMirrorConfigForm">
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="txtNfoRoot">NFO root</label>
+                        <input id="txtNfoRoot" name="txtNfoRoot" type="text" is="emby-input" />
+                        <div class="fieldDescription">Writable folder that receives the mirrored .nfo files, e.g. /NFO. Must not be inside a library folder.</div>
+                    </div>
+                    <div>
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
+
+                <div style="margin-top: 1em;">
+                    <button id="btnSyncNow" is="emby-button" type="button" class="raised button-submit block emby-button">
+                        <span>Sync now</span>
+                    </button>
+                </div>
+
+                <div class="fieldDescription" style="margin-top: 1em;">Last sync: <span id="lastSyncResult">Never</span></div>
+            </div>
+        </div>
+        <script type="text/javascript">
+            var NfoMirrorConfig = {
+                pluginUniqueId: '03136b88-4248-4296-a0ea-29bf7e8a9c00',
+                libraries: []
+            };
+
+            function normalizePath(path) {
+                return (path || '').replace(/\\/g, '/').replace(/\/+$/, '');
+            }
+
+            function isWithin(path, parent) {
+                return path === parent || path.indexOf(parent + '/') === 0;
+            }
+
+            function hasNfoSaver(options) {
+                var savers = options.MetadataSavers;
+                if (Array.isArray(savers)) {
+                    return savers.some(function (saver) {
+                        return typeof saver === 'string' && saver.toLowerCase() === 'nfo';
+                    });
+                }
+
+                // Without a savers list Jellyfin falls back to SaveLocalMetadata.
+                return options.SaveLocalMetadata === true;
+            }
+
+            function hasNfoReader(options) {
+                var disabled = options.DisabledLocalMetadataReaders;
+                if (!Array.isArray(disabled)) {
+                    return true;
+                }
+
+                return !disabled.some(function (reader) {
+                    return typeof reader === 'string' && reader.toLowerCase() === 'nfo';
+                });
+            }
+
+            function isVideoLibrary(library) {
+                return !library.CollectionType || library.CollectionType === 'movies' || library.CollectionType === 'tvshows';
+            }
+
+            function fail() {
+                Dashboard.hideLoadingMsg();
+                Dashboard.alert('Request failed. Check the server log.');
+            }
+
+            function renderChecks(libraries, nfoRoot) {
+                var errorBox = document.querySelector('#nfoRootError');
+                var root = normalizePath(nfoRoot);
+                var overlaps = 0;
+                errorBox.textContent = '';
+
+                if (root) {
+                    libraries.forEach(function (library) {
+                        (library.Locations || []).forEach(function (location) {
+                            var libraryPath = normalizePath(location);
+                            if (!libraryPath || !(isWithin(root, libraryPath) || isWithin(libraryPath, root))) {
+                                return;
+                            }
+
+                            var line = document.createElement('div');
+                            line.textContent = 'NFO root ' + nfoRoot + ' overlaps library ' + (library.Name || '')
+                                + ' (' + location + '). NFO Mirror refuses to run until this is fixed.';
+                            errorBox.appendChild(line);
+                            overlaps++;
+                        });
+                    });
+                }
+
+                errorBox.style.display = overlaps ? 'block' : 'none';
+
+                var warningBox = document.querySelector('#nfoSaversWarning');
+                var list = document.querySelector('#nfoSaversList');
+                var flagged = 0;
+                list.textContent = '';
+
+                libraries.filter(isVideoLibrary).forEach(function (library) {
+                    var options = library.LibraryOptions || {};
+                    var parts = [];
+                    if (hasNfoSaver(options)) {
+                        parts.push('saver');
+                    }
+
+                    if (hasNfoReader(options)) {
+                        parts.push('reader');
+                    }
+
+                    if (!parts.length) {
+                        return;
+                    }
+
+                    var item = document.createElement('li');
+                    item.textContent = (library.Name || '') + ': ' + parts.join(', ');
+                    list.appendChild(item);
+                    flagged++;
+                });
+
+                warningBox.style.display = flagged ? 'block' : 'none';
+            }
+
+            document.querySelector('#NfoMirrorConfigPage')
+                .addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    Promise.all([
+                        ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId),
+                        ApiClient.getVirtualFolders()
+                    ]).then(function (results) {
+                        var config = results[0];
+                        NfoMirrorConfig.libraries = results[1] || [];
+                        document.querySelector('#txtNfoRoot').value = config.NfoRoot || '';
+                        document.querySelector('#lastSyncResult').textContent = config.LastSyncResult || 'Never';
+                        renderChecks(NfoMirrorConfig.libraries, config.NfoRoot || '');
+                        Dashboard.hideLoadingMsg();
+                    }).catch(fail);
+                });
+
+            document.querySelector('#NfoMirrorConfigForm')
+                .addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId).then(function (config) {
+                        var root = document.querySelector('#txtNfoRoot').value.trim();
+                        config.NfoRoot = root;
+                        ApiClient.updatePluginConfiguration(NfoMirrorConfig.pluginUniqueId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                            renderChecks(NfoMirrorConfig.libraries, root);
+                            Dashboard.hideLoadingMsg();
+                        });
+                    }).catch(fail);
+
+                    return false;
+                });
+
+            document.querySelector('#btnSyncNow')
+                .addEventListener('click', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function (tasks) {
+                        var task = (tasks || []).filter(function (t) {
+                            return t.Key === 'NfoMirrorFullSync';
+                        })[0];
+
+                        if (!task) {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert('NFO Mirror sync task not found.');
+                            return;
+                        }
+
+                        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) }).then(function () {
+                            Dashboard.hideLoadingMsg();
+                            Dashboard.alert('Full sync queued.');
+                        }).catch(fail);
+                    }, function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert('NFO Mirror sync task not found.');
+                    });
+                });
+        </script>
+    </div>
+</body>
+</html>
