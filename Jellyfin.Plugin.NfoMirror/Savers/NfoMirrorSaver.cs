@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.NfoMirror.Activity;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -45,8 +47,31 @@ public sealed class NfoMirrorSaver : IMetadataFileSaver
     public string GetSavePath(BaseItem item)
         => RequireSaver(item).GetSavePath(item);
 
-    public Task SaveAsync(BaseItem item, CancellationToken cancellationToken)
-        => RequireSaver(item).SaveAsync(item, cancellationToken);
+    public async Task SaveAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        var path = GetSavePath(item);
+        var outcome = await SaveWithOutcomeAsync(item, cancellationToken).ConfigureAwait(false);
+        if (outcome != SaveOutcome.Unchanged)
+        {
+            ActivityLog.Add(outcome == SaveOutcome.Created ? ActivityKind.Created : ActivityKind.Updated, $"{path} (metadata change)");
+        }
+    }
+
+    internal async Task<SaveOutcome> SaveWithOutcomeAsync(BaseItem item, CancellationToken cancellationToken)
+    {
+        var path = GetSavePath(item);
+        var before = File.Exists(path) ? File.GetLastWriteTimeUtc(path) : (DateTime?)null;
+
+        // BaseNfoSaver skips the write when the bytes are identical, so an unchanged mtime means unchanged content.
+        await RequireSaver(item).SaveAsync(item, cancellationToken).ConfigureAwait(false);
+
+        if (before is null)
+        {
+            return SaveOutcome.Created;
+        }
+
+        return File.GetLastWriteTimeUtc(path) == before ? SaveOutcome.Unchanged : SaveOutcome.Updated;
+    }
 
     private BaseNfoSaver RequireSaver(BaseItem item)
         => SaverFor(item) ?? throw new ArgumentException($"Unsupported item type {item.GetType().Name}", nameof(item));
@@ -66,4 +91,11 @@ public sealed class NfoMirrorSaver : IMetadataFileSaver
         return MirrorPaths.GetMirrorPath(root, new MediaBrowser.Controller.Providers.ItemInfo(item))
             ?? throw new InvalidOperationException($"No mirror path for '{item.Path}'.");
     }
+}
+
+internal enum SaveOutcome
+{
+    Created,
+    Updated,
+    Unchanged
 }

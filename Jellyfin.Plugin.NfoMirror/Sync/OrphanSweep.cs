@@ -9,7 +9,7 @@ public static class OrphanSweep
 {
     public const double MaxOrphanShare = 0.20;
 
-    public static SweepResult Run(string root, IReadOnlySet<string> expected, IEnumerable<string> libraryRoots)
+    public static SweepResult Run(string root, IReadOnlySet<string> expected, IEnumerable<string> libraryRoots, bool move)
     {
         foreach (var libraryRoot in libraryRoots)
         {
@@ -24,6 +24,11 @@ public static class OrphanSweep
             .Where(p => !MirrorPaths.IsUnder(orphansDir, p))
             .ToList();
         var orphans = all.Where(p => !expected.Contains(p)).ToList();
+
+        if (!move || orphans.Count == 0)
+        {
+            return new SweepResult(all.Count, orphans, [], null);
+        }
 
         if (orphans.Count > all.Count * MaxOrphanShare)
         {
@@ -45,6 +50,27 @@ public static class OrphanSweep
         }
 
         return new SweepResult(all.Count, orphans, moved, null);
+    }
+
+    // Puts NFOs back from .orphans once an item maps to their path again; never overwrites a live NFO.
+    public static IReadOnlyList<string> Restore(string root, IEnumerable<string> expected)
+    {
+        var restored = new List<string>();
+        foreach (var path in expected)
+        {
+            var target = MirrorPaths.EnsureUnderRoot(root, path);
+            var source = MirrorPaths.GetOrphanPath(root, target);
+            if (File.Exists(target) || !File.Exists(source))
+            {
+                continue;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Move(source, target);
+            restored.Add(target);
+        }
+
+        return restored;
     }
 }
 

@@ -39,7 +39,7 @@ public sealed class OrphanSweepTests : IDisposable
         var expected = CreateExpectedFiles();
         var orphan = WriteNfo("shows/Stary Serial/tvshow.nfo");
 
-        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot });
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: true);
 
         Assert.Equal(1, result.Moved);
         Assert.Equal(6, result.Total);
@@ -58,7 +58,7 @@ public sealed class OrphanSweepTests : IDisposable
         var expected = CreateExpectedFiles();
         var orphan = WriteNfo("movies/Orphan.nfo");
 
-        var result = OrphanSweep.Run(_root, expected, new[] { Path.Combine(_baseDir, "missing") });
+        var result = OrphanSweep.Run(_root, expected, new[] { Path.Combine(_baseDir, "missing") }, move: true);
 
         Assert.Equal(0, result.Moved);
         Assert.NotNull(result.SkippedReason);
@@ -74,7 +74,7 @@ public sealed class OrphanSweepTests : IDisposable
         var expected = CreateExpectedFiles();
         var orphan = WriteNfo("movies/Orphan.nfo");
 
-        var result = OrphanSweep.Run(_root, expected, new[] { emptyLibrary });
+        var result = OrphanSweep.Run(_root, expected, new[] { emptyLibrary }, move: true);
 
         Assert.Equal(0, result.Moved);
         Assert.NotNull(result.SkippedReason);
@@ -94,7 +94,7 @@ public sealed class OrphanSweepTests : IDisposable
         var firstOrphan = WriteNfo("movies/Orphan1.nfo");
         var secondOrphan = WriteNfo("movies/Orphan2.nfo");
 
-        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot });
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: true);
 
         Assert.Equal(0, result.Moved);
         Assert.NotNull(result.SkippedReason);
@@ -110,7 +110,7 @@ public sealed class OrphanSweepTests : IDisposable
         var expected = CreateExpectedFiles();
         var archived = WriteNfo($"{MirrorPaths.OrphansFolder}/Old/keep.nfo");
 
-        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot });
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: true);
 
         Assert.Equal(0, result.Moved);
         Assert.Equal(5, result.Total);
