@@ -28,12 +28,13 @@ call() {
 
 make_media() {
     local ff="/usr/lib/jellyfin-ffmpeg/ffmpeg"
-    mkdir -p "$work/media/movies" "$work/media/shows/Testshow Qzx/Season 01"
+    mkdir -p "$work/media/movies/Qzxv Versions (2003)" "$work/media/shows/Testshow Qzx/Season 01"
     podman run --rm --entrypoint "$ff" -v "$work/media:/m:Z" "$image" \
         -loglevel error -f lavfi -i color=black:s=64x64:d=1 -c:v libx264 -t 1 /m/sample.mkv
     for f in "movies/Qzxv Testmovie One (2001).mkv" "movies/Qzxv Testmovie Two (2002).mkv" \
              "movies/Zażółć gęślą Testfilm (2020).mkv" \
-             "movies/Qzxv Versions (2003) - 1080p.mkv" "movies/Qzxv Versions (2003) - 720p.mkv" \
+             "movies/Qzxv Versions (2003)/Qzxv Versions (2003) - 1080p.mkv" \
+             "movies/Qzxv Versions (2003)/Qzxv Versions (2003) - 720p.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E02.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03.mkv" \
@@ -72,7 +73,7 @@ setup_server() {
     token="$(call POST /Users/AuthenticateByName '{"Username":"admin","Pw":"admin"}' | jq -r .AccessToken)"
 
     # Library settings exactly as in the README.
-    local opts='{"LibraryOptions":{"MetadataSavers":["NFO Mirror"],"DisabledLocalMetadataReaders":["Nfo"],"LocalMetadataReaderOrder":["NFO Mirror","Nfo"],"PathInfos":[{"Path":"PATH"}]}}'
+    local opts='{"LibraryOptions":{"MetadataSavers":["NFO Mirror"],"LocalMetadataReaderOrder":["NFO Mirror","Nfo"],"PathInfos":[{"Path":"PATH"}]}}'
     call POST "/Library/VirtualFolders?name=movies&collectionType=movies&refreshLibrary=false" "${opts/PATH//movies}" >/dev/null
     call POST "/Library/VirtualFolders?name=shows&collectionType=tvshows&refreshLibrary=false" "${opts/PATH//shows}" >/dev/null
 }
@@ -105,8 +106,7 @@ expected_nfos=(
     "movies/Qzxv Testmovie One (2001).nfo"
     "movies/Qzxv Testmovie Two (2002).nfo"
     "movies/Zażółć gęślą Testfilm (2020).nfo"
-    "movies/Qzxv Versions (2003) - 1080p.nfo"
-    "movies/Qzxv Versions (2003) - 720p.nfo"
+    "movies/Qzxv Versions (2003)/movie.nfo"
     "shows/Testshow Qzx/tvshow.nfo"
     "shows/Testshow Qzx/Season 01/season.nfo"
     "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.nfo"
@@ -138,7 +138,8 @@ echo "last sync: $(call GET /Plugins/03136b88-4248-4296-a0ea-29bf7e8a9c00/Config
 for f in "${expected_nfos[@]}"; do
     check "exists /NFO/$f" '[ -f "$work/nfo/$f" ]'
 done
-echo "versions as seen by Jellyfin: $(call GET "/Items?recursive=true&includeItemTypes=Movie,Episode&fields=MediaSources,Path" | jq -c '[.Items[] | select((.MediaSources | length) > 1 or (.Path | test("720p|Versions"))) | {Name, Path, versions: (.MediaSources | length)}]')"
+check "movie versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Movie&searchTerm=Versions&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
+check "episode versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Episode&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
 check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f | wc -l)" -eq ${#expected_nfos[@]} ]'
 check "nfo has movie root element" 'grep -q "<movie>" "$work/nfo/movies/Qzxv Testmovie One (2001).nfo"'
 check "nothing written to media mounts (first run)" '[ "$(snapshot_media)" = "$before_media" ]'

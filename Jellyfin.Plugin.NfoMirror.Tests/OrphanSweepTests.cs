@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Jellyfin.Plugin.NfoMirror.Sync;
 using Xunit;
 
@@ -45,6 +46,9 @@ public sealed class OrphanSweepTests : IDisposable
         Assert.Null(result.SkippedReason);
         Assert.False(File.Exists(orphan));
         Assert.True(File.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder, "shows", "Stary Serial", "tvshow.nfo")));
+        var move = Assert.Single(result.MovedFiles);
+        Assert.Equal(orphan, move.From);
+        Assert.Equal(Path.Combine(_root, MirrorPaths.OrphansFolder, "shows", "Stary Serial", "tvshow.nfo"), move.To);
         Assert.All(expected, path => Assert.True(File.Exists(path), path));
     }
 
@@ -94,6 +98,7 @@ public sealed class OrphanSweepTests : IDisposable
 
         Assert.Equal(0, result.Moved);
         Assert.NotNull(result.SkippedReason);
+        Assert.Equal(new[] { firstOrphan, secondOrphan }, result.Orphans.Order());
         Assert.True(File.Exists(firstOrphan));
         Assert.True(File.Exists(secondOrphan));
         Assert.False(Directory.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder)));

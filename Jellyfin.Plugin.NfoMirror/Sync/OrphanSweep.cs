@@ -15,7 +15,7 @@ public static class OrphanSweep
         {
             if (!Directory.Exists(libraryRoot) || !Directory.EnumerateFileSystemEntries(libraryRoot).Any())
             {
-                return SweepResult.Skip($"library root '{libraryRoot}' is unreachable or empty");
+                return new SweepResult(0, [], [], $"library root '{libraryRoot}' is unreachable or empty");
             }
         }
 
@@ -25,14 +25,9 @@ public static class OrphanSweep
             .ToList();
         var orphans = all.Where(p => !expected.Contains(p)).ToList();
 
-        if (orphans.Count == 0)
-        {
-            return new SweepResult([], all.Count, null);
-        }
-
         if (orphans.Count > all.Count * MaxOrphanShare)
         {
-            return SweepResult.Skip($"{orphans.Count} of {all.Count} NFOs would be moved (limit {MaxOrphanShare:P0})", orphans);
+            return new SweepResult(all.Count, orphans, [], $"{orphans.Count} of {all.Count} NFOs would be moved (limit {MaxOrphanShare:P0})");
         }
 
         var moved = new List<MovedOrphan>(orphans.Count);
@@ -49,19 +44,13 @@ public static class OrphanSweep
             moved.Add(new MovedOrphan(orphan, target));
         }
 
-        return new SweepResult(moved, all.Count, null);
+        return new SweepResult(all.Count, orphans, moved, null);
     }
 }
 
 public sealed record MovedOrphan(string From, string To);
 
-public sealed record SweepResult(IReadOnlyList<MovedOrphan> MovedFiles, int Total, string? SkippedReason)
+public sealed record SweepResult(int Total, IReadOnlyList<string> Orphans, IReadOnlyList<MovedOrphan> MovedFiles, string? SkippedReason)
 {
     public int Moved => MovedFiles.Count;
-
-    // Files the sweep would have moved, kept so a skipped sweep can still be inspected in the log.
-    public IReadOnlyList<string> Candidates { get; init; } = [];
-
-    internal static SweepResult Skip(string reason, IReadOnlyList<string>? candidates = null)
-        => new([], 0, reason) { Candidates = candidates ?? [] };
 }

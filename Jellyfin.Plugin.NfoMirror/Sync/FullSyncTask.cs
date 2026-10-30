@@ -21,6 +21,8 @@ public class FullSyncTask : IScheduledTask
 {
     public const string TaskKey = "NfoMirrorFullSync";
 
+    private const int MaxLoggedPerReason = 50;
+
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<FullSyncTask> _logger;
     private readonly NfoMirrorSaver _saver;
@@ -75,6 +77,7 @@ public class FullSyncTask : IScheduledTask
             IncludeOwnedItems = true
         })
             .Where(i => !string.IsNullOrEmpty(i.Path))
+            .OrderBy(i => IsSecondaryVersion(i) ? 1 : 0)
             .ToList();
 
         _logger.LogInformation(
@@ -84,7 +87,7 @@ public class FullSyncTask : IScheduledTask
             string.Join(", ", libraryRoots));
 
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        int created = 0, updated = 0, unchanged = 0, outsideLibraries = 0, notSaveable = 0, failed = 0;
+        int created = 0, updated = 0, unchanged = 0, shared = 0, outsideLibraries = 0, notSaveable = 0, failed = 0;
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -92,21 +95,22 @@ public class FullSyncTask : IScheduledTask
             var item = items[i];
 
             // Expected covers every library, so NFOs the saver wrote elsewhere are never swept.
-            if (MirrorPaths.GetMirrorPath(root, new ItemInfo(item)) is { } mirror)
-            {
-                expected.Add(mirror);
-            }
+            var mirror = MirrorPaths.GetMirrorPath(root, new ItemInfo(item));
+            var firstForPath = mirror is null || expected.Add(mirror);
 
             var path = MirrorPaths.Normalize(item.Path);
             if (!libraryRoots.Any(r => MirrorPaths.IsUnder(r, path)))
             {
-                outsideLibraries++;
-                _logger.LogDebug("NFO Mirror skipped {Path}: not in a Movies/Shows library", item.Path);
+                LogSkip(++outsideLibraries, item, "not in a Movies/Shows library");
             }
             else if (!_saver.IsEnabledFor(item, ItemUpdateType.MetadataEdit))
             {
-                notSaveable++;
-                _logger.LogDebug("NFO Mirror skipped {Path}: Jellyfin's NFO saver does not handle this item", item.Path);
+                LogSkip(++notSaveable, item, "not handled by Jellyfin's NFO saver (extra or non-file item)");
+            }
+            else if (!firstForPath)
+            {
+                // Versions in one movie folder share movie.nfo; the primary version, sorted first, owns it.
+                shared++;
             }
             else
             {
@@ -150,7 +154,7 @@ public class FullSyncTask : IScheduledTask
         if (sweep.SkippedReason is not null)
         {
             _logger.LogWarning("NFO Mirror skipped orphan sweep: {Reason}", sweep.SkippedReason);
-            foreach (var candidate in sweep.Candidates.Take(50))
+            foreach (var candidate in sweep.Orphans.Take(MaxLoggedPerReason))
             {
                 _logger.LogWarning("NFO Mirror orphan candidate (not moved): {Path}", candidate);
             }
@@ -167,8 +171,24 @@ public class FullSyncTask : IScheduledTask
             : $"orphan sweep skipped ({sweep.SkippedReason})";
         SaveResult(
             $"{items.Count} items: {created} created, {updated} updated, {unchanged} unchanged, "
-            + $"{outsideLibraries} skipped (not in a Movies/Shows library), {notSaveable} skipped (extras or non-file items), "
+            + $"{shared} sharing another version's NFO, {outsideLibraries} skipped (not in a Movies/Shows library), "
+            + $"{notSaveable} skipped (extra or non-file item), "
             + $"{failed} failed; {orphanText}. Details in the Jellyfin log.");
+    }
+
+    private static bool IsSecondaryVersion(BaseItem item)
+        => !item.OwnerId.Equals(Guid.Empty) || item is Video { PrimaryVersionId: not null };
+
+    private void LogSkip(int count, BaseItem item, string reason)
+    {
+        if (count <= MaxLoggedPerReason)
+        {
+            _logger.LogInformation("NFO Mirror skipped {Path}: {Reason}", item.Path, reason);
+        }
+        else if (count == MaxLoggedPerReason + 1)
+        {
+            _logger.LogInformation("NFO Mirror: more items skipped ({Reason}), not logging each", reason);
+        }
     }
 
     private void SaveResult(string summary)
