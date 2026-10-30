@@ -43,14 +43,41 @@ Do this for every Movies and Shows library.
 
 The saver tick is required because Jellyfin only calls a metadata saver for a library when that saver is in the library's Metadata savers list. The reader must be at the top because the first local reader that finds a file wins.
 
-## First sync
+## Syncing
 
-1. Open Dashboard > Plugins > NFO Mirror.
-2. Check that the NFO root points at your writable folder (default `/NFO`).
-3. Press "Sync now" once.
-4. Check the "Last sync" line for the result.
+Open the config page: Dashboard > Plugins > NFO Mirror. It has two buttons.
 
-The button queues the scheduled task "NFO Mirror: full sync" (Dashboard > Scheduled Tasks, category Library). It has no default trigger; add one there if you want it to run regularly.
+"Sync changed" queues the task "NFO Mirror: sync changed". It writes NFOs only for items Jellyfin saved since the previous changed sync. The first run has no previous sync, so it covers everything. It does not run the orphan sweep. The result appears on the "Last changed sync" line.
+
+"Full sync" queues the task "NFO Mirror: full sync". It writes every Movies and Shows item, then runs the orphan sweep. The result appears on the "Last full sync" line.
+
+Both tasks run under Dashboard > Scheduled Tasks, category Library. They never run at the same time; the second waits for the first to finish. Neither task has a default trigger. Add a trigger there if you want one, for example "sync changed" every 6 hours and "full sync" weekly.
+
+After installing: press "Full sync" once, read the "Last full sync" line, and watch the Activity console.
+
+The config page also warns for libraries where the built-in Nfo saver is still ticked or the Nfo reader is ranked above NFO Mirror, and shows an error if the NFO root overlaps a library. The plugin never changes library settings itself.
+
+## Orphan sweep
+
+An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usually because media was moved, renamed or removed. Set the mode on the config page:
+
+- Off: the sweep does not run.
+- Preview (default): the sweep lists the NFOs that no item maps to and moves nothing. The config page shows the count and the first 100 paths.
+- Move: the sweep moves each orphan to `/NFO/.orphans/<same path>`. The plugin never deletes an NFO.
+
+The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
+
+The sweep is skipped entirely if a Movies or Shows library root is unreachable or empty, or if more than 20% of the NFOs would move. This protects against a NAS outage.
+
+Orphans are auto-restored. If an item maps to a path again and no NFO is there, the plugin moves the NFO back from `/NFO/.orphans`, so media that comes back keeps its old metadata. The reader does this when Jellyfin scans the item, and every sync checks again.
+
+Recommendation: run a full sync in Preview, check the list, then switch to Move.
+
+## Activity console
+
+The config page shows a live list of what the plugin did: files created, updated, restored, moved, would-move, skipped (with the reason) and failed. It also shows the saves that Jellyfin itself triggers on a metadata change. Unchanged files are only counted. The list can be filtered per kind.
+
+The console is kept in memory only: the last 5000 events, cleared when Jellyfin restarts. The Jellyfin log has the permanent record. Moved and restored files, the first 50 skipped files per reason and the first 50 orphans of a preview are logged at Information level, failures at Error level, and each written file at Debug level.
 
 ## How it works
 
@@ -66,13 +93,11 @@ NFO Mirror writes only `.nfo` files, nothing else. It handles Movie, Series, Sea
 
 The plugin is both a saver and a reader, both named "NFO Mirror". Jellyfin calls the saver itself on every metadata change, in libraries where it is ticked. The reader loads metadata back from the mirrored file.
 
-The full sync writes missing or outdated NFOs for every item in Movies and Shows libraries, then runs the orphan sweep. An `.nfo` under the NFO root that no current item maps to is moved, never deleted, to `/NFO/.orphans/<same relative path>`. The sweep is skipped entirely if a Movies or Shows library root is unreachable or empty, or if more than 20% of NFOs would move. This protects against a NAS outage.
+See "Syncing" for what each sync writes and when, "Orphan sweep" for NFOs that no item maps to, and "Activity console" for the console on the config page.
 
 Safety: the plugin never writes, renames or deletes anything outside the NFO root. One guard checks every target path. It refuses to run if the NFO root is inside a library path, or a library path is inside the NFO root.
 
-Limitation: watched state changes alone are not re-mirrored immediately, because Jellyfin only pushes user-data saves to the built-in "Nfo" saver. They are written on the next metadata save or full sync.
-
-The plugin config page shows the NFO root, a "Sync now" button, the last sync result, a warning for libraries where the built-in Nfo saver is still ticked or the Nfo reader is ranked above NFO Mirror, and an error if the NFO root overlaps a library. The plugin never changes library settings itself.
+Limitation: watched state changes alone are not re-mirrored immediately, because Jellyfin only pushes user-data saves to the built-in "Nfo" saver. They are written on the next metadata save or full sync; the changed sync does not see them.
 
 ## Building
 

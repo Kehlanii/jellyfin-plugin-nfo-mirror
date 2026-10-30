@@ -1,7 +1,7 @@
 ---
 name: "NFO Mirror"
 guid: "03136b88-4248-4296-a0ea-29bf7e8a9c00"
-version: "1.0.1.0"
+version: "1.1.0.0"
 targetAbi: "12.4.0.0"
 framework: "net10.0"
 overview: "Write and read Kodi .nfo files in a separate folder when media is read-only"
@@ -13,6 +13,7 @@ owner: "Kehlanii"
 artifacts:
 - "Jellyfin.Plugin.NfoMirror.dll"
 changelog: >
-  Fix full sync moving NFOs of alternate versions (e.g. two files for one episode) to .orphans.
-  Log every moved orphan and a breakdown of skipped items.
-  Config page warns when the Nfo reader is ranked above NFO Mirror (12.4 has no reader checkbox).
+  New "NFO Mirror: sync changed" task next to the full sync; both share a lock.
+  Orphan sweep mode Off / Preview / Move, default Preview; the first full sync after an install or upgrade only previews.
+  NFOs in .orphans are restored automatically when an item maps to their path again.
+  Config page: Sync changed and Full sync buttons, orphan preview list and a live activity console.

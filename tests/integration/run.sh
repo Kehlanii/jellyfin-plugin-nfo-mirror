@@ -14,6 +14,11 @@ api="http://127.0.0.1:$port"
 auth_header='MediaBrowser Client="it", Device="it", DeviceId="nfo-mirror-it", Version="1.0"'
 token=""
 fails=0
+plugin_id=03136b88-4248-4296-a0ea-29bf7e8a9c00
+
+config() { call GET "/Plugins/$plugin_id/Configuration" | jq -r "$1"; }
+set_sweep_mode() { call POST "/Plugins/$plugin_id/Configuration" "$(call GET "/Plugins/$plugin_id/Configuration" | jq --arg m "$1" '.SweepMode = $m')" >/dev/null; }
+activity_count() { call GET "/NfoMirror/Activity?after=0" | jq --arg k "$1" '[.Lines[] | select(.Kind == $k)] | length'; }
 
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
@@ -133,7 +138,7 @@ start
 setup_server
 check "plugin loaded" '[ "$(call GET /Plugins | jq -r ".[] | select(.Name == \"NFO Mirror\") | .Status")" = Active ]'
 scan_and_sync
-echo "last sync: $(call GET /Plugins/03136b88-4248-4296-a0ea-29bf7e8a9c00/Configuration | jq -r .LastSyncResult)"
+echo "last sync: $(call GET /Plugins/$plugin_id/Configuration | jq -r .LastSyncResult)"
 
 for f in "${expected_nfos[@]}"; do
     check "exists /NFO/$f" '[ -f "$work/nfo/$f" ]'
@@ -143,6 +148,14 @@ check "episode versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=tr
 check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f | wc -l)" -eq ${#expected_nfos[@]} ]'
 check "nfo has movie root element" 'grep -q "<movie>" "$work/nfo/movies/Qzxv Testmovie One (2001).nfo"'
 check "nothing written to media mounts (first run)" '[ "$(snapshot_media)" = "$before_media" ]'
+check "first full sync is a baseline preview" '[[ "$(config .LastSyncResult)" == *"baseline preview"* ]]'
+check "activity console lists created files" '[ "$(activity_count Created)" -ge 1 ]'
+
+echo "== sync changed"
+run_task NfoMirrorChangedSync
+echo "last changed sync: $(config .LastChangedSyncResult)"
+check "changed sync ran without failures" '[[ "$(config .LastChangedSyncResult)" == *" 0 failed"* ]]'
+check "changed sync stored its start time" '[ "$(config .LastChangedSyncStartUtc)" != null ]'
 
 echo "== edit title"
 uid="$(call GET /Users/Me | jq -r .Id)"
@@ -168,14 +181,32 @@ titles="$(call GET "/Items?userId=$uid&recursive=true&includeItemTypes=Movie" | 
 echo "movies after rebuild: $(echo "$titles" | tr '\n' '|')"
 check "edited title restored from /NFO" 'grep -qx "Edited Title Łódź" <<<"$titles"'
 
-echo "== orphan"
+echo "== orphan preview"
+command cp "$work/media/movies/Qzxv Testmovie Two (2002).mkv" "$work/sample-two.mkv"
 rm "$work/media/movies/Qzxv Testmovie Two (2002).mkv"
 before_media="$(snapshot_media)"
+set_sweep_mode Move
 scan_and_sync
-echo "last sync: $(call GET /Plugins/03136b88-4248-4296-a0ea-29bf7e8a9c00/Configuration | jq -r .LastSyncResult)"
+echo "last sync: $(config .LastSyncResult)"
+check "baseline after reinstall only previews" '[ -f "$work/nfo/movies/Qzxv Testmovie Two (2002).nfo" ] && [ "$(config .LastPreviewCount)" -eq 1 ]'
+check "preview lists the orphan" '[[ "$(config ".LastPreview[0]")" == *"Qzxv Testmovie Two (2002).nfo" ]]'
+check "activity console lists would-move" '[ "$(activity_count WouldMove)" -ge 1 ]'
+
+echo "== orphan move"
+run_task NfoMirrorFullSync
+echo "last sync: $(config .LastSyncResult)"
 check "alternate versions not swept" '[ -z "$(find "$work/nfo/.orphans" -name "*Versions*" -o -name "*720p*" 2>/dev/null)" ]'
 check "orphan moved to .orphans" '[ -f "$work/nfo/.orphans/movies/Qzxv Testmovie Two (2002).nfo" ] && [ ! -f "$work/nfo/movies/Qzxv Testmovie Two (2002).nfo" ]'
 check "other NFOs kept" '[ -f "$work/nfo/movies/Qzxv Testmovie One (2001).nfo" ]'
+check "nothing written to media mounts (orphan)" '[ "$(snapshot_media)" = "$before_media" ]'
+
+echo "== auto-restore"
+command cp "$work/sample-two.mkv" "$work/media/movies/Qzxv Testmovie Two (2002).mkv"
+before_media="$(snapshot_media)"
+scan_and_sync
+echo "last sync: $(config .LastSyncResult)"
+check "orphan restored to its mirror path" '[ -f "$work/nfo/movies/Qzxv Testmovie Two (2002).nfo" ] && [ ! -f "$work/nfo/.orphans/movies/Qzxv Testmovie Two (2002).nfo" ]'
+check "activity console lists restored" '[ "$(activity_count Restored)" -ge 1 ]'
 
 check "nothing written to media mounts" '[ "$(snapshot_media)" = "$before_media" ]'
 check "no .nfo files in media" '[ -z "$(find "$work/media" -name "*.nfo")" ]'

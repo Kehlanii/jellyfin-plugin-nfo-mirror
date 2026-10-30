@@ -119,6 +119,87 @@ public sealed class OrphanSweepTests : IDisposable
         Assert.All(expected, path => Assert.True(File.Exists(path), path));
     }
 
+    [Fact]
+    public void PreviewReportsSingleOrphanWithoutMovingIt()
+    {
+        var expected = CreateExpectedFiles();
+        var orphan = WriteNfo("shows/Stary Serial/tvshow.nfo");
+
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: false);
+
+        Assert.Equal(0, result.Moved);
+        Assert.Empty(result.MovedFiles);
+        Assert.Equal(orphan, Assert.Single(result.Orphans));
+        Assert.Equal(6, result.Total);
+        Assert.Null(result.SkippedReason);
+        Assert.True(File.Exists(orphan));
+        Assert.False(Directory.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder)));
+        Assert.All(expected, path => Assert.True(File.Exists(path), path));
+    }
+
+    [Fact]
+    public void PreviewListsAllOrphansEvenAboveTheMoveLimit()
+    {
+        var expected = new HashSet<string>(StringComparer.Ordinal)
+        {
+            WriteNfo("movies/a.nfo"),
+            WriteNfo("movies/b.nfo"),
+            WriteNfo("movies/c.nfo")
+        };
+        var firstOrphan = WriteNfo("movies/Orphan1.nfo");
+        var secondOrphan = WriteNfo("movies/Orphan2.nfo");
+
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: false);
+
+        Assert.Equal(0, result.Moved);
+        Assert.Null(result.SkippedReason);
+        Assert.Equal(new[] { firstOrphan, secondOrphan }, result.Orphans.Order());
+        Assert.True(File.Exists(firstOrphan));
+        Assert.True(File.Exists(secondOrphan));
+        Assert.False(Directory.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder)));
+    }
+
+    [Fact]
+    public void RestorePutsArchivedNfoBackAtItsTarget()
+    {
+        var target = Path.GetFullPath(Path.Combine(_root, "movies", "x.nfo"));
+        var archived = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/x.nfo");
+
+        var restored = OrphanSweep.Restore(_root, new[] { target });
+
+        Assert.Equal(target, Assert.Single(restored));
+        Assert.True(File.Exists(target));
+        Assert.False(File.Exists(archived));
+    }
+
+    [Fact]
+    public void RestoreNeverOverwritesAnExistingNfo()
+    {
+        var target = WriteNfo("movies/x.nfo");
+        File.WriteAllText(target, "live");
+        var archived = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/x.nfo");
+        File.WriteAllText(archived, "old");
+
+        var restored = OrphanSweep.Restore(_root, new[] { target });
+
+        Assert.Empty(restored);
+        Assert.Equal("live", File.ReadAllText(target));
+        Assert.True(File.Exists(archived));
+        Assert.Equal("old", File.ReadAllText(archived));
+    }
+
+    [Fact]
+    public void RestoreWithoutArchivedCopyDoesNothing()
+    {
+        var target = Path.GetFullPath(Path.Combine(_root, "movies", "x.nfo"));
+
+        var restored = OrphanSweep.Restore(_root, new[] { target });
+
+        Assert.Empty(restored);
+        Assert.False(File.Exists(target));
+        Assert.False(Directory.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder)));
+    }
+
     private HashSet<string> CreateExpectedFiles()
         => new(StringComparer.Ordinal)
         {

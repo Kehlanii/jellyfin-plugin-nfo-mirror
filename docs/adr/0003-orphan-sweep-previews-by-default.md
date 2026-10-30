@@ -15,7 +15,7 @@ Version 1.0.0.0 moved 240 of about 30,000 NFOs to `.orphans` on a real server. T
 - The orphan sweep has a mode: Off, Preview or Move. The default is Preview.
 - The first sweep after an install or upgrade is a baseline sweep and only previews, whatever the mode.
 - The preview list goes to the Jellyfin log and the config page. Nothing except `.nfo` files is written to the NFO root.
-- Each sync auto-restores an NFO from `.orphans` when a current item maps to its path again and that path is empty.
+- An NFO is auto-restored from `.orphans` when a current item maps to its path again and that path is empty: by the reader, before Jellyfin fetches fresh metadata for a returning item, and by every sync.
 - The plugin never deletes NFOs. There is no purge of `.orphans`.
 - A changed sync joins the full sync. Both tasks share a lock and ship without default triggers.
 

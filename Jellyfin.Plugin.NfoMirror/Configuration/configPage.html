@@ -5,7 +5,7 @@
     <title>NFO Mirror</title>
 </head>
 <body>
-    <div id="NfoMirrorConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button">
+    <div id="NfoMirrorConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select">
         <div data-role="content">
             <div class="content-primary">
                 <div id="nfoRootError" style="display: none; background-color: #fdecea; border: 1px solid #c62828; border-radius: .25em; color: #8b1a1a; padding: .75em 1em; margin-bottom: 1em;"></div>
@@ -22,6 +22,15 @@
                         <input id="txtNfoRoot" name="txtNfoRoot" type="text" is="emby-input" />
                         <div class="fieldDescription">Writable folder that receives the mirrored .nfo files, e.g. /NFO. Must not be inside a library folder.</div>
                     </div>
+                    <div class="selectContainer">
+                        <label class="selectLabel" for="selSweepMode">Orphan sweep</label>
+                        <select is="emby-select" id="selSweepMode" name="selSweepMode" class="emby-select-withcolor emby-select">
+                            <option value="Off">Off</option>
+                            <option value="Preview">Preview</option>
+                            <option value="Move">Move</option>
+                        </select>
+                        <div class="fieldDescription">Preview lists NFOs that no library item maps to and moves nothing. Move puts them in .orphans (never deletes). The first full sync after installing or upgrading the plugin always previews.</div>
+                    </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                             <span>Save</span>
@@ -29,19 +38,61 @@
                     </div>
                 </form>
 
-                <div style="margin-top: 1em;">
-                    <button id="btnSyncNow" is="emby-button" type="button" class="raised button-submit block emby-button">
-                        <span>Sync now</span>
+                <div style="display: flex; flex-wrap: wrap; gap: .5em; margin-top: 1em;">
+                    <button id="btnSyncChanged" is="emby-button" type="button" class="raised block emby-button" style="flex: 1 1 10em;">
+                        <span>Sync changed</span>
+                    </button>
+                    <button id="btnSyncFull" is="emby-button" type="button" class="raised block emby-button" style="flex: 1 1 10em;">
+                        <span>Full sync</span>
                     </button>
                 </div>
 
-                <div class="fieldDescription" style="margin-top: 1em;">Last sync: <span id="lastSyncResult">Never</span></div>
+                <div class="fieldDescription" style="margin-top: 1em;">Last changed sync: <span id="lastChangedSyncResult">Never</span></div>
+                <div class="fieldDescription">Last full sync: <span id="lastSyncResult">Never</span></div>
+
+                <div id="orphanPreview" style="display: none; margin-top: 1.5em;">
+                    <div style="font-weight: 600; margin-bottom: .25em;">Orphan preview</div>
+                    <div class="fieldDescription" id="orphanPreviewSummary"></div>
+                    <div id="orphanPreviewList" style="max-height: 12em; overflow: auto; font-family: monospace; font-size: small; white-space: pre-wrap; background: rgba(0, 0, 0, .06); border-radius: .25em; padding: .5em; margin-top: .25em;"></div>
+                </div>
+
+                <div style="margin-top: 1.5em;">
+                    <div style="font-weight: 600;">Activity <span id="activityRunning" style="display: none; font-weight: 400; font-size: small;">(sync running)</span></div>
+                    <div id="activityFilters" style="display: flex; flex-wrap: wrap; gap: .75em; margin: .5em 0;"></div>
+                    <div id="activityConsole" style="height: 24em; overflow: auto; font-family: monospace; font-size: small; white-space: pre-wrap; background: #1e1e1e; color: #dddddd; border-radius: .25em; padding: .5em; line-height: 1.35;"></div>
+                    <div style="margin-top: .5em;">
+                        <button id="btnClearActivity" is="emby-button" type="button" class="raised emby-button">
+                            <span>Clear view</span>
+                        </button>
+                    </div>
+                    <div class="fieldDescription" style="margin-top: .75em;">Unchanged files are counted, not listed. The console keeps the last 5000 events in memory and is cleared when Jellyfin restarts; the Jellyfin log keeps the permanent record.</div>
+                </div>
             </div>
         </div>
         <script type="text/javascript">
             var NfoMirrorConfig = {
                 pluginUniqueId: '03136b88-4248-4296-a0ea-29bf7e8a9c00',
-                libraries: []
+                libraries: [],
+                sweepModes: ['Off', 'Preview', 'Move'],
+                activityKinds: ['Info', 'Created', 'Updated', 'Restored', 'Moved', 'WouldMove', 'Skipped', 'Failed'],
+                kindVisible: {},
+                lastSeq: 0,
+                statusSeq: 0,
+                running: false,
+                polling: false,
+                activityTimer: null,
+                maxLines: 3000
+            };
+
+            var activityColors = {
+                Info: '#dddddd',
+                Created: '#7ed07e',
+                Updated: '#7fb3ff',
+                Restored: '#4dd0c8',
+                Moved: '#f0a35e',
+                WouldMove: '#e5d363',
+                Skipped: '#9e9e9e',
+                Failed: '#ff6b6b'
             };
 
             function normalizePath(path) {
@@ -137,21 +188,244 @@
                 warningBox.style.display = flagged ? 'block' : 'none';
             }
 
-            document.querySelector('#NfoMirrorConfigPage')
-                .addEventListener('pageshow', function () {
-                    Dashboard.showLoadingMsg();
-                    Promise.all([
-                        ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId),
-                        ApiClient.getVirtualFolders()
-                    ]).then(function (results) {
-                        var config = results[0];
-                        NfoMirrorConfig.libraries = results[1] || [];
-                        document.querySelector('#txtNfoRoot').value = config.NfoRoot || '';
-                        document.querySelector('#lastSyncResult').textContent = config.LastSyncResult || 'Never';
-                        renderChecks(NfoMirrorConfig.libraries, config.NfoRoot || '');
-                        Dashboard.hideLoadingMsg();
-                    }).catch(fail);
+            function sweepModeValue(value) {
+                if (typeof value === 'number') {
+                    return NfoMirrorConfig.sweepModes[value] || 'Preview';
+                }
+
+                return value || 'Preview';
+            }
+
+            function renderPreview(config) {
+                var section = document.querySelector('#orphanPreview');
+                var summary = document.querySelector('#orphanPreviewSummary');
+                var list = document.querySelector('#orphanPreviewList');
+                var paths = config.LastPreview || [];
+                var count = config.LastPreviewCount || 0;
+
+                list.textContent = '';
+
+                if (!count) {
+                    section.style.display = 'none';
+                    return;
+                }
+
+                summary.textContent = count + ' NFOs would move to .orphans'
+                    + (count > paths.length ? ' (showing first 100)' : '');
+
+                paths.forEach(function (path) {
+                    var line = document.createElement('div');
+                    line.textContent = path;
+                    list.appendChild(line);
                 });
+
+                section.style.display = 'block';
+            }
+
+            function renderStatus(config) {
+                document.querySelector('#lastChangedSyncResult').textContent = config.LastChangedSyncResult || 'Never';
+                document.querySelector('#lastSyncResult').textContent = config.LastSyncResult || 'Never';
+                renderPreview(config);
+            }
+
+            function refreshStatus() {
+                ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId).then(renderStatus, function () {
+                    // Silent: the next finished sync triggers another refresh.
+                });
+            }
+
+            function pad2(value) {
+                return value < 10 ? '0' + value : String(value);
+            }
+
+            function formatTime(value) {
+                // Cut the timestamp to milliseconds; some browsers reject longer fractions.
+                var date = new Date(String(value || '').replace(/(\.\d{3})\d+/, '$1'));
+                if (isNaN(date.getTime())) {
+                    return '--:--:--';
+                }
+
+                return pad2(date.getHours()) + ':' + pad2(date.getMinutes()) + ':' + pad2(date.getSeconds());
+            }
+
+            function padKind(kind) {
+                var padded = kind;
+                while (padded.length < 10) {
+                    padded += ' ';
+                }
+
+                return padded;
+            }
+
+            function kindVisible(kind) {
+                return NfoMirrorConfig.kindVisible[kind] !== false;
+            }
+
+            function applyFilters() {
+                var children = document.querySelector('#activityConsole').children;
+                var i;
+                for (i = 0; i < children.length; i++) {
+                    children[i].style.display = kindVisible(children[i].getAttribute('data-kind')) ? '' : 'none';
+                }
+            }
+
+            function buildActivityFilters() {
+                var container = document.querySelector('#activityFilters');
+
+                NfoMirrorConfig.activityKinds.forEach(function (kind) {
+                    var label = document.createElement('label');
+                    label.style.display = 'inline-flex';
+                    label.style.alignItems = 'center';
+                    label.style.gap = '.25em';
+
+                    var check = document.createElement('input');
+                    check.type = 'checkbox';
+                    check.checked = true;
+                    check.addEventListener('change', function () {
+                        NfoMirrorConfig.kindVisible[kind] = check.checked;
+                        applyFilters();
+                    });
+
+                    var text = document.createElement('span');
+                    text.textContent = kind;
+
+                    label.appendChild(check);
+                    label.appendChild(text);
+                    container.appendChild(label);
+                    NfoMirrorConfig.kindVisible[kind] = true;
+                });
+            }
+
+            function appendActivity(lines) {
+                var box = document.querySelector('#activityConsole');
+                var atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+
+                lines.forEach(function (entry) {
+                    if (typeof entry.Seq === 'number' && entry.Seq > NfoMirrorConfig.lastSeq) {
+                        NfoMirrorConfig.lastSeq = entry.Seq;
+                    }
+
+                    var kind = entry.Kind || 'Info';
+                    var line = document.createElement('div');
+                    line.setAttribute('data-kind', kind);
+                    line.style.color = activityColors[kind] || activityColors.Info;
+                    line.textContent = formatTime(entry.TimeUtc) + '  ' + padKind(kind) + (entry.Message || '');
+                    line.style.display = kindVisible(kind) ? '' : 'none';
+                    box.appendChild(line);
+
+                    // Short syncs can start and end between two polls, so Running alone can miss them.
+                    if (kind === 'Info' && / finished: /.test(entry.Message || '') && entry.Seq > NfoMirrorConfig.statusSeq) {
+                        NfoMirrorConfig.statusSeq = entry.Seq;
+                        refreshStatus();
+                    }
+                });
+
+                while (box.childElementCount > NfoMirrorConfig.maxLines) {
+                    box.removeChild(box.firstElementChild);
+                }
+
+                if (atBottom) {
+                    box.scrollTop = box.scrollHeight;
+                }
+            }
+
+            function setRunning(running) {
+                var wasRunning = NfoMirrorConfig.running;
+                NfoMirrorConfig.running = running;
+                document.querySelector('#activityRunning').style.display = running ? 'inline' : 'none';
+
+                if (wasRunning && !running) {
+                    refreshStatus();
+                }
+            }
+
+            function pollActivity() {
+                if (!document.getElementById('NfoMirrorConfigPage')) {
+                    stopActivityPolling();
+                    return;
+                }
+
+                if (NfoMirrorConfig.polling) {
+                    return;
+                }
+
+                NfoMirrorConfig.polling = true;
+                ApiClient.getJSON(ApiClient.getUrl('NfoMirror/Activity', { after: NfoMirrorConfig.lastSeq })).then(function (response) {
+                    NfoMirrorConfig.polling = false;
+                    var lines = (response && response.Lines) || [];
+                    appendActivity(lines);
+                    setRunning(response && response.Running === true);
+
+                    // A full page means the backlog continues; the server caps a response at 1000 lines.
+                    if (lines.length >= 1000) {
+                        setTimeout(pollActivity, 0);
+                    }
+                }, function () {
+                    NfoMirrorConfig.polling = false;
+                });
+            }
+
+            function startActivityPolling() {
+                if (NfoMirrorConfig.activityTimer) {
+                    return;
+                }
+
+                pollActivity();
+                NfoMirrorConfig.activityTimer = setInterval(pollActivity, 2000);
+            }
+
+            function stopActivityPolling() {
+                if (NfoMirrorConfig.activityTimer) {
+                    clearInterval(NfoMirrorConfig.activityTimer);
+                    NfoMirrorConfig.activityTimer = null;
+                }
+            }
+
+            function queueTask(key, label) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function (tasks) {
+                    var task = (tasks || []).filter(function (t) {
+                        return t.Key === key;
+                    })[0];
+
+                    if (!task) {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(label + ' task not found.');
+                        return;
+                    }
+
+                    ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) }).then(function () {
+                        Dashboard.hideLoadingMsg();
+                        Dashboard.alert(label + ' queued.');
+                    }).catch(fail);
+                }, function () {
+                    Dashboard.hideLoadingMsg();
+                    Dashboard.alert(label + ' task not found.');
+                });
+            }
+
+            var pageElement = document.querySelector('#NfoMirrorConfigPage');
+
+            pageElement.addEventListener('pageshow', function () {
+                startActivityPolling();
+                Dashboard.showLoadingMsg();
+                Promise.all([
+                    ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId),
+                    ApiClient.getVirtualFolders()
+                ]).then(function (results) {
+                    var config = results[0];
+                    NfoMirrorConfig.libraries = results[1] || [];
+                    document.querySelector('#txtNfoRoot').value = config.NfoRoot || '';
+                    document.querySelector('#selSweepMode').value = sweepModeValue(config.SweepMode);
+                    renderStatus(config);
+                    renderChecks(NfoMirrorConfig.libraries, config.NfoRoot || '');
+                    Dashboard.hideLoadingMsg();
+                }).catch(fail);
+            });
+
+            pageElement.addEventListener('viewhide', function () {
+                stopActivityPolling();
+            });
 
             document.querySelector('#NfoMirrorConfigForm')
                 .addEventListener('submit', function (e) {
@@ -160,6 +434,7 @@
                     ApiClient.getPluginConfiguration(NfoMirrorConfig.pluginUniqueId).then(function (config) {
                         var root = document.querySelector('#txtNfoRoot').value.trim();
                         config.NfoRoot = root;
+                        config.SweepMode = document.querySelector('#selSweepMode').value;
                         ApiClient.updatePluginConfiguration(NfoMirrorConfig.pluginUniqueId, config).then(function (result) {
                             Dashboard.processPluginConfigurationUpdateResult(result);
                             renderChecks(NfoMirrorConfig.libraries, root);
@@ -170,29 +445,22 @@
                     return false;
                 });
 
-            document.querySelector('#btnSyncNow')
+            document.querySelector('#btnSyncChanged')
                 .addEventListener('click', function () {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function (tasks) {
-                        var task = (tasks || []).filter(function (t) {
-                            return t.Key === 'NfoMirrorFullSync';
-                        })[0];
-
-                        if (!task) {
-                            Dashboard.hideLoadingMsg();
-                            Dashboard.alert('NFO Mirror sync task not found.');
-                            return;
-                        }
-
-                        ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) }).then(function () {
-                            Dashboard.hideLoadingMsg();
-                            Dashboard.alert('Full sync queued.');
-                        }).catch(fail);
-                    }, function () {
-                        Dashboard.hideLoadingMsg();
-                        Dashboard.alert('NFO Mirror sync task not found.');
-                    });
+                    queueTask('NfoMirrorChangedSync', 'Sync changed');
                 });
+
+            document.querySelector('#btnSyncFull')
+                .addEventListener('click', function () {
+                    queueTask('NfoMirrorFullSync', 'Full sync');
+                });
+
+            document.querySelector('#btnClearActivity')
+                .addEventListener('click', function () {
+                    document.querySelector('#activityConsole').textContent = '';
+                });
+
+            buildActivityFilters();
         </script>
     </div>
 </body>

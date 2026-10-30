@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.NfoMirror.Activity;
+using Jellyfin.Plugin.NfoMirror.Sync;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -49,8 +51,21 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
     public Task<MetadataResult<T>> GetMetadata(ItemInfo info, IDirectoryService directoryService, CancellationToken cancellationToken)
     {
         var result = new MetadataResult<T>();
-        var path = GetMirrorFile(info);
-        if (path is null || !File.Exists(path))
+        var root = NfoRoot.TryGet(_libraryManager, out _);
+        var path = root is null ? null : MirrorPaths.GetMirrorPath(root, info);
+        if (path is null)
+        {
+            return Task.FromResult(result);
+        }
+
+        // Restore here, before Jellyfin fetches fresh metadata and the saver takes the path.
+        if (!File.Exists(path) && OrphanSweep.Restore(root!, [path]).Count > 0)
+        {
+            Logger.LogInformation("NFO Mirror restored {Path} from {Orphans}", path, MirrorPaths.OrphansFolder);
+            ActivityLog.Add(ActivityKind.Restored, $"{path} (item is back)");
+        }
+
+        if (!File.Exists(path))
         {
             return Task.FromResult(result);
         }
