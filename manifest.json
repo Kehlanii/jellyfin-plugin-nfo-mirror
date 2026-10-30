@@ -1,0 +1,21 @@
+[
+  {
+    "guid": "03136b88-4248-4296-a0ea-29bf7e8a9c00",
+    "name": "NFO Mirror",
+    "description": "Mirrors Jellyfin's NFO files for movies, shows, seasons and episodes into a writable NFO root instead of next to the media files, and reads them back.",
+    "overview": "Write and read Kodi .nfo files in a separate folder when media is read-only",
+    "owner": "Kehlanii",
+    "category": "Metadata",
+    "imageUrl": "",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Kehlanii/jellyfin-plugin-nfo-mirror/releases/download/v1.0.0.0/nfo-mirror_1.0.0.0.zip",
+        "checksum": "2991807c2c3e2e09ba9b74a60a2d26a6",
+        "timestamp": "2026-10-30T14:37:56Z"
+      }
+    ]
+  }
+]
