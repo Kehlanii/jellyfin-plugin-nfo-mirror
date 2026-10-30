@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.0.0",
+        "changelog": "New \"NFO Mirror: sync changed\" task next to the full sync; both share a lock. Orphan sweep mode Off / Preview / Move, default Preview; the first full sync after an install or upgrade only previews. NFOs in .orphans are restored automatically when an item maps to their path again. Config page: Sync changed and Full sync buttons, orphan preview list and a live activity console.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Kehlanii/jellyfin-plugin-nfo-mirror/releases/download/v1.1.0.0/nfo-mirror_1.1.0.0.zip",
+        "checksum": "d781d3b56c58f104a17fd3c1028dc43e",
+        "timestamp": "2026-10-30T22:45:27Z"
+      },
+      {
         "version": "1.0.1.0",
         "changelog": "Fix full sync moving NFOs of alternate versions (e.g. two files for one episode) to .orphans. Log every moved orphan and a breakdown of skipped items. Config page warns when the Nfo reader is ranked above NFO Mirror (12.4 has no reader checkbox).",
         "targetAbi": "12.4.0.0",
