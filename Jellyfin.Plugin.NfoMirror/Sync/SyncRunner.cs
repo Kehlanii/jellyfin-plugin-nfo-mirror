@@ -79,7 +79,7 @@ public sealed class SyncRunner
 
         var startedUtc = DateTime.UtcNow;
         var libraryRoots = _libraryManager.GetVirtualFolders()
-            // Mixed libraries are "mixed" in 12.4 and null when created by older versions.
+            // Mixed Movies and Shows libraries report "mixed", or null when created without a type.
             .Where(f => f.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.tvshows or CollectionTypeOptions.mixed or null)
             .SelectMany(f => f.Locations ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -148,7 +148,7 @@ public sealed class SyncRunner
 
             if (!libraryRoots.Any(r => MirrorPaths.IsUnder(r, path)))
             {
-                Skip(++outsideLibraries, item, "not in a Movies, Shows or Mixed library");
+                Skip(++outsideLibraries, item, "not in a Movies, Shows or Mixed Movies and Shows library");
             }
             else if (!_saver.IsEnabledFor(item, ItemUpdateType.MetadataEdit))
             {
@@ -201,7 +201,7 @@ public sealed class SyncRunner
         }
 
         var summary = $"{items.Count} items: {created} created, {updated} updated, {unchanged} unchanged, {restored.Count} restored from {MirrorPaths.OrphansFolder}, "
-            + $"{shared} sharing another version's NFO, {outsideLibraries} skipped (not in a Movies, Shows or Mixed library), "
+            + $"{shared} sharing another version's NFO, {outsideLibraries} skipped (not in a Movies, Shows or Mixed Movies and Shows library), "
             + $"{notSaveable} skipped (extra or non-file item), {failed} failed";
 
         if (kind == SyncKind.Full)

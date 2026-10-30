@@ -32,7 +32,7 @@ The NFO folder must not be inside any media folder.
 
 ## Library setup
 
-Do this for every Movies, Shows and Mixed Movies and Shows library.
+Do this for every Movies, Shows, and Mixed Movies and Shows library.
 
 1. Open Dashboard > Libraries.
 2. Click the ... button next to the library and choose Manage library.
@@ -67,7 +67,7 @@ An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usua
 
 The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
 
-The sweep is skipped entirely if a library root of one of those libraries is unreachable or empty, or if more than 20% of the NFOs would move. This protects against a NAS outage.
+The sweep is skipped entirely if a root folder of any Movies, Shows, or Mixed Movies and Shows library is unreachable or empty, or if more than 20% of the NFOs would move. This protects against a NAS outage.
 
 Orphans are auto-restored. If an item maps to a path again and no NFO is there, the plugin moves the NFO back from `/NFO/.orphans`, so media that comes back keeps its old metadata. The reader does this when Jellyfin scans the item, and every sync checks again.
 

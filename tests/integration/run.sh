@@ -113,6 +113,7 @@ expected_nfos=(
     "movies/Qzxv Testmovie Two (2002).nfo"
     "movies/Zażółć gęślą Testfilm (2020).nfo"
     "movies/Qzxv Versions (2003)/movie.nfo"
+    "mixed/Qzxv Mixed Movie (2005).nfo"
     "shows/Testshow Qzx/tvshow.nfo"
     "shows/Testshow Qzx/Season 01/season.nfo"
     "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.nfo"
@@ -146,8 +147,8 @@ for f in "${expected_nfos[@]}"; do
 done
 check "movie versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Movie&searchTerm=Versions&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
 check "episode versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Episode&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
-check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f -not -path "./mixed/*" | wc -l)" -eq ${#expected_nfos[@]} ]'
-check "mixed library items are not skipped" '[[ "$(config .LastSyncResult)" == *" 0 skipped (not in a Movies, Shows or Mixed library)"* ]]'
+check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f | wc -l)" -eq ${#expected_nfos[@]} ]'
+check "mixed library items are not skipped" '[[ "$(config .LastSyncResult)" == *" 0 skipped (not in a Movies, Shows or Mixed Movies and Shows library)"* ]]'
 check "nfo has movie root element" 'grep -q "<movie>" "$work/nfo/movies/Qzxv Testmovie One (2001).nfo"'
 check "nothing written to media mounts (first run)" '[ "$(snapshot_media)" = "$before_media" ]'
 check "first full sync is a baseline preview" '[[ "$(config .LastSyncResult)" == *"baseline preview"* ]]'
