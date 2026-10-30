@@ -18,9 +18,11 @@ public class NfoMirrorController : ControllerBase
     public ActionResult<ActivityResponse> GetActivity([FromQuery] long after = 0)
         => new ActivityResponse(
             ActivityLog.After(after).Select(e => new ActivityLine(e.Seq, e.TimeUtc, e.Kind.ToString(), e.Message)).ToList(),
-            SyncRunner.IsRunning);
+            SyncRunner.IsRunning,
+            ActivityLog.LastSeq);
 }
 
 public sealed record ActivityLine(long Seq, DateTime TimeUtc, string Kind, string Message);
 
-public sealed record ActivityResponse(IReadOnlyList<ActivityLine> Lines, bool Running);
+// LastSeq drops below the client's cursor after a Jellyfin restart.
+public sealed record ActivityResponse(IReadOnlyList<ActivityLine> Lines, bool Running, long LastSeq);

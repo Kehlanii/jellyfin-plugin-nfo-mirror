@@ -51,18 +51,25 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
     public Task<MetadataResult<T>> GetMetadata(ItemInfo info, IDirectoryService directoryService, CancellationToken cancellationToken)
     {
         var result = new MetadataResult<T>();
-        var root = NfoRoot.TryGet(_libraryManager, out _);
-        var path = root is null ? null : MirrorPaths.GetMirrorPath(root, info);
-        if (path is null)
+        var (root, path) = GetMirrorFile(info);
+        if (root is null || path is null)
         {
             return Task.FromResult(result);
         }
 
         // Restore here, before Jellyfin fetches fresh metadata and the saver takes the path.
-        if (!File.Exists(path) && OrphanSweep.Restore(root!, [path]).Count > 0)
+        try
         {
-            Logger.LogInformation("NFO Mirror restored {Path} from {Orphans}", path, MirrorPaths.OrphansFolder);
-            ActivityLog.Add(ActivityKind.Restored, $"{path} (item is back)");
+            if (!File.Exists(path) && OrphanSweep.Restore(root, [path]).Count > 0)
+            {
+                Logger.LogInformation("NFO Mirror restored {Path} from {Orphans}", path, MirrorPaths.OrphansFolder);
+                ActivityLog.Add(ActivityKind.Restored, $"{path} (item is back)");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Logger.LogWarning(ex, "NFO Mirror could not restore {Path}", path);
+            ActivityLog.Add(ActivityKind.Failed, $"{path}: restore failed: {ex.Message}");
         }
 
         if (!File.Exists(path))
@@ -87,7 +94,7 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
 
     public bool HasChanged(BaseItem item, IDirectoryService directoryService)
     {
-        var path = GetMirrorFile(new ItemInfo(item));
+        var (_, path) = GetMirrorFile(new ItemInfo(item));
         if (path is null || !File.Exists(path))
         {
             return false;
@@ -99,10 +106,10 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
 
     protected abstract void Fetch(MetadataResult<T> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken);
 
-    private string? GetMirrorFile(ItemInfo info)
+    private (string? Root, string? Path) GetMirrorFile(ItemInfo info)
     {
         var root = NfoRoot.TryGet(_libraryManager, out _);
-        return root is null ? null : MirrorPaths.GetMirrorPath(root, info);
+        return (root, root is null ? null : MirrorPaths.GetMirrorPath(root, info));
     }
 }
 

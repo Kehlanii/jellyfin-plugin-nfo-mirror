@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,13 +26,16 @@ public sealed class SyncRunner
 {
     private const int MaxLoggedPerReason = 50;
     private const int MaxActivityPerList = 1000;
-    private const int MaxStoredPreview = 100;
+    private const int MaxPreview = 100;
 
     private static readonly SemaphoreSlim _lock = new(1, 1);
 
     private readonly ILibraryManager _libraryManager;
     private readonly NfoMirrorSaver _saver;
     private readonly ILogger _logger;
+
+    // Applied to the live configuration at the end: the config page may replace the instance mid-run.
+    private readonly List<Action<PluginConfiguration>> _configChanges = [];
 
     public SyncRunner(ILibraryManager libraryManager, NfoMirrorSaver saver, ILogger logger)
     {
@@ -50,6 +54,7 @@ public sealed class SyncRunner
         }
 
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        _configChanges.Clear();
         try
         {
             await RunLockedAsync(kind, progress, cancellationToken).ConfigureAwait(false);
@@ -114,7 +119,17 @@ public sealed class SyncRunner
             }
         }
 
-        var restored = OrphanSweep.Restore(root, expected);
+        IReadOnlyList<string> restored = [];
+        try
+        {
+            restored = OrphanSweep.Restore(root, expected);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "NFO Mirror could not restore from {Orphans}", MirrorPaths.OrphansFolder);
+            ActivityLog.Add(ActivityKind.Failed, $"Restore from {MirrorPaths.OrphansFolder}: {ex.Message}");
+        }
+
         foreach (var path in restored)
         {
             _logger.LogInformation("NFO Mirror restored {Path} from {Orphans}", path, MirrorPaths.OrphansFolder);
@@ -166,14 +181,14 @@ public sealed class SyncRunner
 
                         var target = _saver.GetSavePath(item);
                         _logger.LogDebug("NFO Mirror {Outcome} {Path}", outcome, target);
-                        ActivityLog.Add(outcome == SaveOutcome.Created ? ActivityKind.Created : ActivityKind.Updated, target);
+                        ActivityLog.Add(ActivityLog.For(outcome), target);
 
                         // Stops HasChanged from re-importing our own write.
                         item.DateLastSaved = DateTime.UtcNow;
                         await item.UpdateToRepositoryAsync(ItemUpdateType.None, cancellationToken).ConfigureAwait(false);
                     }
                 }
-                catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or InvalidOperationException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
                 {
                     failed++;
                     _logger.LogError(ex, "NFO Mirror could not write NFO for {Path}", item.Path);
@@ -192,13 +207,16 @@ public sealed class SyncRunner
         {
             summary += "; " + Sweep(root, expected, libraryRoots, config);
         }
-        else if (failed == 0)
+
+        // A clean full sync covers everything saved before it started, so the changed sync can start from there too.
+        if (failed == 0)
         {
-            config.LastChangedSyncStartUtc = startedUtc;
+            _configChanges.Add(c => c.LastChangedSyncStartUtc = startedUtc);
         }
 
         progress.Report(100);
-        Info($"{Capitalize(Label(kind))} finished: {summary}.");
+        _logger.LogInformation("NFO Mirror {Kind} finished: {Summary}", Label(kind), summary);
+        ActivityLog.Add(ActivityKind.Finished, $"{Capitalize(Label(kind))} finished: {summary}.");
         SaveResult(kind, summary + ".");
     }
 
@@ -231,7 +249,7 @@ public sealed class SyncRunner
             var listed = 0;
             foreach (var orphan in sweep.Orphans)
             {
-                if (listed < MaxLoggedPerReason)
+                if (listed < MaxPreview)
                 {
                     _logger.LogInformation("NFO Mirror orphan (not moved): {Path}", orphan);
                 }
@@ -242,18 +260,25 @@ public sealed class SyncRunner
                 }
             }
 
-            config.LastPreviewCount = sweep.Orphans.Count;
-            config.LastPreview = sweep.Orphans.Take(MaxStoredPreview).ToArray();
+            var preview = sweep.Orphans.Take(MaxPreview).ToArray();
+            _configChanges.Add(c =>
+            {
+                c.LastPreviewCount = sweep.Orphans.Count;
+                c.LastPreview = preview;
+            });
         }
         else
         {
-            config.LastPreviewCount = 0;
-            config.LastPreview = [];
+            _configChanges.Add(c =>
+            {
+                c.LastPreviewCount = 0;
+                c.LastPreview = [];
+            });
         }
 
         if (baseline && sweep.SkippedReason is null)
         {
-            config.BaselineVersion = version;
+            _configChanges.Add(c => c.BaselineVersion = version);
             return $"baseline preview after install/upgrade: {sweep.Orphans.Count} of {sweep.Total} NFOs would move to {MirrorPaths.OrphansFolder}";
         }
 
@@ -301,13 +326,19 @@ public sealed class SyncRunner
             return;
         }
 
+        var config = plugin.Configuration;
         if (kind == SyncKind.Full)
         {
-            plugin.Configuration.LastSyncResult = line;
+            config.LastSyncResult = line;
         }
         else
         {
-            plugin.Configuration.LastChangedSyncResult = line;
+            config.LastChangedSyncResult = line;
+        }
+
+        foreach (var change in _configChanges)
+        {
+            change(config);
         }
 
         plugin.SaveConfiguration();

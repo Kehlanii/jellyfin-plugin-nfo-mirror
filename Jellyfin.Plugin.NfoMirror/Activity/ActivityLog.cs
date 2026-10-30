@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Plugin.NfoMirror.Savers;
 
 namespace Jellyfin.Plugin.NfoMirror.Activity;
 
@@ -13,12 +14,13 @@ public enum ActivityKind
     Moved,
     WouldMove,
     Skipped,
-    Failed
+    Failed,
+    Finished
 }
 
 public sealed record ActivityEntry(long Seq, DateTime TimeUtc, ActivityKind Kind, string Message);
 
-// In memory on purpose: the plugin writes nothing outside the NFO root. The Jellyfin log keeps the permanent record.
+// Memory only: the plugin writes nothing outside the NFO root.
 public static class ActivityLog
 {
     public const int Capacity = 5000;
@@ -26,6 +28,19 @@ public static class ActivityLog
     private static readonly object _lock = new();
     private static readonly Queue<ActivityEntry> _entries = new();
     private static long _seq;
+
+    public static long LastSeq
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _seq;
+            }
+        }
+    }
+
+    public static ActivityKind For(SaveOutcome outcome) => outcome == SaveOutcome.Created ? ActivityKind.Created : ActivityKind.Updated;
 
     public static void Add(ActivityKind kind, string message)
     {

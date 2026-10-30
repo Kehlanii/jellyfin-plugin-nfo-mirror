@@ -50,10 +50,19 @@ public sealed class NfoMirrorSaver : IMetadataFileSaver
     public async Task SaveAsync(BaseItem item, CancellationToken cancellationToken)
     {
         var path = GetSavePath(item);
-        var outcome = await SaveWithOutcomeAsync(item, cancellationToken).ConfigureAwait(false);
-        if (outcome != SaveOutcome.Unchanged)
+        try
         {
-            ActivityLog.Add(outcome == SaveOutcome.Created ? ActivityKind.Created : ActivityKind.Updated, $"{path} (metadata change)");
+            var outcome = await SaveWithOutcomeAsync(item, cancellationToken).ConfigureAwait(false);
+            if (outcome != SaveOutcome.Unchanged)
+            {
+                ActivityLog.Add(ActivityLog.For(outcome), $"{path} (metadata change)");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Jellyfin logs and swallows saver errors; this only surfaces them on the console.
+            ActivityLog.Add(ActivityKind.Failed, $"{path} (metadata change): {ex.Message}");
+            throw;
         }
     }
 
@@ -93,7 +102,7 @@ public sealed class NfoMirrorSaver : IMetadataFileSaver
     }
 }
 
-internal enum SaveOutcome
+public enum SaveOutcome
 {
     Created,
     Updated,

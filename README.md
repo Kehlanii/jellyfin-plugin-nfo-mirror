@@ -77,7 +77,7 @@ Recommendation: run a full sync in Preview, check the list, then switch to Move.
 
 The config page shows a live list of what the plugin did: files created, updated, restored, moved, would-move, skipped (with the reason) and failed. It also shows the saves that Jellyfin itself triggers on a metadata change. Unchanged files are only counted. The list can be filtered per kind.
 
-The console is kept in memory only: the last 5000 events, cleared when Jellyfin restarts. The Jellyfin log has the permanent record. Moved and restored files, the first 50 skipped files per reason and the first 50 orphans of a preview are logged at Information level, failures at Error level, and each written file at Debug level.
+The console is kept in memory only: the last 5000 events, cleared when Jellyfin restarts. The Jellyfin log has the permanent record. Moved and restored files, the first 50 skipped files per reason and the first 100 orphans of a preview are logged at Information level, failures at Error level, and each written file at Debug level.
 
 ## How it works
 

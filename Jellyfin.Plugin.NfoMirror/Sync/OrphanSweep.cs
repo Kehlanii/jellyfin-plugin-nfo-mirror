@@ -52,7 +52,7 @@ public static class OrphanSweep
         return new SweepResult(all.Count, orphans, moved, null);
     }
 
-    // Puts NFOs back from .orphans once an item maps to their path again; never overwrites a live NFO.
+    // Never overwrites a live NFO.
     public static IReadOnlyList<string> Restore(string root, IEnumerable<string> expected)
     {
         var restored = new List<string>();

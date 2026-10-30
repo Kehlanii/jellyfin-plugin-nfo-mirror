@@ -73,8 +73,7 @@
             var NfoMirrorConfig = {
                 pluginUniqueId: '03136b88-4248-4296-a0ea-29bf7e8a9c00',
                 libraries: [],
-                sweepModes: ['Off', 'Preview', 'Move'],
-                activityKinds: ['Info', 'Created', 'Updated', 'Restored', 'Moved', 'WouldMove', 'Skipped', 'Failed'],
+                activityKinds: ['Info', 'Finished', 'Created', 'Updated', 'Restored', 'Moved', 'WouldMove', 'Skipped', 'Failed'],
                 kindVisible: {},
                 lastSeq: 0,
                 statusSeq: 0,
@@ -86,6 +85,7 @@
 
             var activityColors = {
                 Info: '#dddddd',
+                Finished: '#ffffff',
                 Created: '#7ed07e',
                 Updated: '#7fb3ff',
                 Restored: '#4dd0c8',
@@ -188,14 +188,6 @@
                 warningBox.style.display = flagged ? 'block' : 'none';
             }
 
-            function sweepModeValue(value) {
-                if (typeof value === 'number') {
-                    return NfoMirrorConfig.sweepModes[value] || 'Preview';
-                }
-
-                return value || 'Preview';
-            }
-
             function renderPreview(config) {
                 var section = document.querySelector('#orphanPreview');
                 var summary = document.querySelector('#orphanPreviewSummary');
@@ -239,7 +231,7 @@
             }
 
             function formatTime(value) {
-                // Cut the timestamp to milliseconds; some browsers reject longer fractions.
+                // Some browsers reject .NET's 7-digit fractions.
                 var date = new Date(String(value || '').replace(/(\.\d{3})\d+/, '$1'));
                 if (isNaN(date.getTime())) {
                     return '--:--:--';
@@ -314,7 +306,7 @@
                     box.appendChild(line);
 
                     // Short syncs can start and end between two polls, so Running alone can miss them.
-                    if (kind === 'Info' && / finished: /.test(entry.Message || '') && entry.Seq > NfoMirrorConfig.statusSeq) {
+                    if (kind === 'Finished' && entry.Seq > NfoMirrorConfig.statusSeq) {
                         NfoMirrorConfig.statusSeq = entry.Seq;
                         refreshStatus();
                     }
@@ -351,13 +343,22 @@
 
                 NfoMirrorConfig.polling = true;
                 ApiClient.getJSON(ApiClient.getUrl('NfoMirror/Activity', { after: NfoMirrorConfig.lastSeq })).then(function (response) {
-                    NfoMirrorConfig.polling = false;
                     var lines = (response && response.Lines) || [];
-                    appendActivity(lines);
-                    setRunning(response && response.Running === true);
+                    try {
+                        // The server's counter restarts with Jellyfin; follow it back down.
+                        if (response && typeof response.LastSeq === 'number' && response.LastSeq < NfoMirrorConfig.lastSeq) {
+                            NfoMirrorConfig.lastSeq = 0;
+                            NfoMirrorConfig.statusSeq = 0;
+                        }
+
+                        appendActivity(lines);
+                        setRunning(response && response.Running === true);
+                    } finally {
+                        NfoMirrorConfig.polling = false;
+                    }
 
                     // A full page means the backlog continues; the server caps a response at 1000 lines.
-                    if (lines.length >= 1000) {
+                    if (lines.length >= 1000 && NfoMirrorConfig.activityTimer) {
                         setTimeout(pollActivity, 0);
                     }
                 }, function () {
@@ -416,7 +417,7 @@
                     var config = results[0];
                     NfoMirrorConfig.libraries = results[1] || [];
                     document.querySelector('#txtNfoRoot').value = config.NfoRoot || '';
-                    document.querySelector('#selSweepMode').value = sweepModeValue(config.SweepMode);
+                    document.querySelector('#selSweepMode').value = config.SweepMode || 'Preview';
                     renderStatus(config);
                     renderChecks(NfoMirrorConfig.libraries, config.NfoRoot || '');
                     Dashboard.hideLoadingMsg();
