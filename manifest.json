@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.1.1.0",
+        "changelog": "Full sync now covers Mixed Movies and Shows libraries instead of skipping their items.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Kehlanii/jellyfin-plugin-nfo-mirror/releases/download/v1.1.1.0/nfo-mirror_1.1.1.0.zip",
+        "checksum": "a64068907e35af5bef5ad38e1610214c",
+        "timestamp": "2026-10-30T23:09:52Z"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "New \"NFO Mirror: sync changed\" task next to the full sync; both share a lock. Orphan sweep mode Off / Preview / Move, default Preview; the first full sync after an install or upgrade only previews. NFOs in .orphans are restored automatically when an item maps to their path again. Config page: Sync changed and Full sync buttons, orphan preview list and a live activity console.",
         "targetAbi": "12.4.0.0",
