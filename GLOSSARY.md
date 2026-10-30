@@ -30,7 +30,7 @@ Two or more media files that Jellyfin groups as one item, for example `Show S01E
 
 ## Full sync
 
-The scheduled task that saves the NFO of every Movies/Shows item, then runs the orphan sweep.
+The scheduled task that saves the NFO of every item in a Movies, Shows or Mixed Movies and Shows library, then runs the orphan sweep.
 
 ## Changed sync
 

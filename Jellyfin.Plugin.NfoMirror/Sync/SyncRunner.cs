@@ -79,7 +79,8 @@ public sealed class SyncRunner
 
         var startedUtc = DateTime.UtcNow;
         var libraryRoots = _libraryManager.GetVirtualFolders()
-            .Where(f => f.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.tvshows)
+            // Mixed libraries are "mixed" in 12.4 and null when created by older versions.
+            .Where(f => f.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.tvshows or CollectionTypeOptions.mixed or null)
             .SelectMany(f => f.Locations ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p))
             .Select(MirrorPaths.Normalize)
@@ -106,7 +107,7 @@ public sealed class SyncRunner
             .ToList();
 
         var scope = since is null ? $"{items.Count} items" : $"{items.Count} items saved since {since:yyyy-MM-dd HH:mm:ss} UTC";
-        _logger.LogInformation("NFO Mirror {Kind} started: root {Root}, {Scope}, Movies/Shows library roots: {Libraries}", Label(kind), root, scope, string.Join(", ", libraryRoots));
+        _logger.LogInformation("NFO Mirror {Kind} started: root {Root}, {Scope}, video library roots: {Libraries}", Label(kind), root, scope, string.Join(", ", libraryRoots));
         Info($"{Capitalize(Label(kind))} started: {scope}, NFO root {root}.");
 
         // Expected covers every library, so NFOs the saver wrote elsewhere are never swept.
@@ -147,7 +148,7 @@ public sealed class SyncRunner
 
             if (!libraryRoots.Any(r => MirrorPaths.IsUnder(r, path)))
             {
-                Skip(++outsideLibraries, item, "not in a Movies/Shows library");
+                Skip(++outsideLibraries, item, "not in a Movies, Shows or Mixed library");
             }
             else if (!_saver.IsEnabledFor(item, ItemUpdateType.MetadataEdit))
             {
@@ -200,7 +201,7 @@ public sealed class SyncRunner
         }
 
         var summary = $"{items.Count} items: {created} created, {updated} updated, {unchanged} unchanged, {restored.Count} restored from {MirrorPaths.OrphansFolder}, "
-            + $"{shared} sharing another version's NFO, {outsideLibraries} skipped (not in a Movies/Shows library), "
+            + $"{shared} sharing another version's NFO, {outsideLibraries} skipped (not in a Movies, Shows or Mixed library), "
             + $"{notSaveable} skipped (extra or non-file item), {failed} failed";
 
         if (kind == SyncKind.Full)

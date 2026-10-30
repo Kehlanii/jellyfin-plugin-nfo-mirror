@@ -33,11 +33,11 @@ call() {
 
 make_media() {
     local ff="/usr/lib/jellyfin-ffmpeg/ffmpeg"
-    mkdir -p "$work/media/movies/Qzxv Versions (2003)" "$work/media/shows/Testshow Qzx/Season 01"
+    mkdir -p "$work/media/mixed" "$work/media/movies/Qzxv Versions (2003)" "$work/media/shows/Testshow Qzx/Season 01"
     podman run --rm --entrypoint "$ff" -v "$work/media:/m:Z" "$image" \
         -loglevel error -f lavfi -i color=black:s=64x64:d=1 -c:v libx264 -t 1 /m/sample.mkv
     for f in "movies/Qzxv Testmovie One (2001).mkv" "movies/Qzxv Testmovie Two (2002).mkv" \
-             "movies/Zażółć gęślą Testfilm (2020).mkv" \
+             "movies/Zażółć gęślą Testfilm (2020).mkv" "mixed/Qzxv Mixed Movie (2005).mkv" \
              "movies/Qzxv Versions (2003)/Qzxv Versions (2003) - 1080p.mkv" \
              "movies/Qzxv Versions (2003)/Qzxv Versions (2003) - 720p.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.mkv" \
@@ -57,7 +57,7 @@ install_plugin() {
 start() {
     podman run -d --name "$name" -p "127.0.0.1:$port:8096" \
         -v "$work/config:/config:Z" -v "$work/cache:/cache:Z" \
-        -v "$work/media/movies:/movies:ro,Z" -v "$work/media/shows:/shows:ro,Z" \
+        -v "$work/media/movies:/movies:ro,Z" -v "$work/media/shows:/shows:ro,Z" -v "$work/media/mixed:/mixed:ro,Z" \
         -v "$work/nfo:/NFO:Z" "$image" >/dev/null
     for _ in $(seq 120); do
         # Info/Public answers before startup finishes; the wizard endpoints 503 until then.
@@ -81,6 +81,7 @@ setup_server() {
     local opts='{"LibraryOptions":{"MetadataSavers":["NFO Mirror"],"LocalMetadataReaderOrder":["NFO Mirror","Nfo"],"PathInfos":[{"Path":"PATH"}]}}'
     call POST "/Library/VirtualFolders?name=movies&collectionType=movies&refreshLibrary=false" "${opts/PATH//movies}" >/dev/null
     call POST "/Library/VirtualFolders?name=shows&collectionType=tvshows&refreshLibrary=false" "${opts/PATH//shows}" >/dev/null
+    call POST "/Library/VirtualFolders?name=mixed&collectionType=mixed&refreshLibrary=false" "${opts/PATH//mixed}" >/dev/null
 }
 
 task_id() { call GET /ScheduledTasks | jq -r --arg k "$1" '.[] | select(.Key == $k) | .Id'; }
@@ -145,7 +146,8 @@ for f in "${expected_nfos[@]}"; do
 done
 check "movie versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Movie&searchTerm=Versions&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
 check "episode versions grouped by Jellyfin" '[ "$(call GET "/Items?recursive=true&includeItemTypes=Episode&fields=MediaSources" | jq "[.Items[].MediaSources | length] | max")" -eq 2 ]'
-check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f | wc -l)" -eq ${#expected_nfos[@]} ]'
+check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f -not -path "./mixed/*" | wc -l)" -eq ${#expected_nfos[@]} ]'
+check "mixed library items are not skipped" '[[ "$(config .LastSyncResult)" == *" 0 skipped (not in a Movies, Shows or Mixed library)"* ]]'
 check "nfo has movie root element" 'grep -q "<movie>" "$work/nfo/movies/Qzxv Testmovie One (2001).nfo"'
 check "nothing written to media mounts (first run)" '[ "$(snapshot_media)" = "$before_media" ]'
 check "first full sync is a baseline preview" '[[ "$(config .LastSyncResult)" == *"baseline preview"* ]]'

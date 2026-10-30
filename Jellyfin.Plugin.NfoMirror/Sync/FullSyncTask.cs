@@ -33,7 +33,7 @@ public class FullSyncTask : IScheduledTask
 
     public string Key => TaskKey;
 
-    public string Description => "Writes missing or outdated .nfo files for every Movies/Shows item, restores matches from .orphans, then runs the orphan sweep (Off, Preview or Move).";
+    public string Description => "Writes missing or outdated .nfo files for every Movies, Shows and Mixed library item, restores matches from .orphans, then runs the orphan sweep (Off, Preview or Move).";
 
     public string Category => "Library";
 

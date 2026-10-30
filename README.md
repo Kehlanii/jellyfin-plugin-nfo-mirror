@@ -32,7 +32,7 @@ The NFO folder must not be inside any media folder.
 
 ## Library setup
 
-Do this for every Movies and Shows library.
+Do this for every Movies, Shows and Mixed Movies and Shows library.
 
 1. Open Dashboard > Libraries.
 2. Click the ... button next to the library and choose Manage library.
@@ -49,7 +49,7 @@ Open the config page: Dashboard > Plugins > NFO Mirror. It has two buttons.
 
 "Sync changed" queues the task "NFO Mirror: sync changed". It writes NFOs only for items Jellyfin saved since the previous changed sync. The first run has no previous sync, so it covers everything. It does not run the orphan sweep. The result appears on the "Last changed sync" line.
 
-"Full sync" queues the task "NFO Mirror: full sync". It writes every Movies and Shows item, then runs the orphan sweep. The result appears on the "Last full sync" line.
+"Full sync" queues the task "NFO Mirror: full sync". It writes every item in Movies, Shows and Mixed Movies and Shows libraries, then runs the orphan sweep. The result appears on the "Last full sync" line.
 
 Both tasks run under Dashboard > Scheduled Tasks, category Library. They never run at the same time; the second waits for the first to finish. Neither task has a default trigger. Add a trigger there if you want one, for example "sync changed" every 6 hours and "full sync" weekly.
 
@@ -67,7 +67,7 @@ An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usua
 
 The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
 
-The sweep is skipped entirely if a Movies or Shows library root is unreachable or empty, or if more than 20% of the NFOs would move. This protects against a NAS outage.
+The sweep is skipped entirely if a library root of one of those libraries is unreachable or empty, or if more than 20% of the NFOs would move. This protects against a NAS outage.
 
 Orphans are auto-restored. If an item maps to a path again and no NFO is there, the plugin moves the NFO back from `/NFO/.orphans`, so media that comes back keeps its old metadata. The reader does this when Jellyfin scans the item, and every sync checks again.
 

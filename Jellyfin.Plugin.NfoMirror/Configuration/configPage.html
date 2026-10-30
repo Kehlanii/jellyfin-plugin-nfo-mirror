@@ -126,7 +126,7 @@
             }
 
             function isVideoLibrary(library) {
-                return !library.CollectionType || library.CollectionType === 'movies' || library.CollectionType === 'tvshows';
+                return !library.CollectionType || ['movies', 'tvshows', 'mixed'].indexOf(library.CollectionType) !== -1;
             }
 
             function fail() {
