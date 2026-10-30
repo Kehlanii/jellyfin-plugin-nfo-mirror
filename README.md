@@ -38,9 +38,8 @@ Do this for every Movies and Shows library.
 2. Click the ... button next to the library and choose Manage library.
 3. Under Metadata savers, untick "Nfo".
 4. Under Metadata savers, tick "NFO Mirror".
-5. Under Metadata readers, untick "Nfo".
-6. Under Metadata readers, tick "NFO Mirror" and move it to the top of the list.
-7. Save.
+5. Under Metadata readers, move "NFO Mirror" to the top of the list, above "Nfo". Jellyfin 12.4 has no checkbox here, only the order.
+6. Save.
 
 The saver tick is required because Jellyfin only calls a metadata saver for a library when that saver is in the library's Metadata savers list. The reader must be at the top because the first local reader that finds a file wins.
 
@@ -73,7 +72,7 @@ Safety: the plugin never writes, renames or deletes anything outside the NFO roo
 
 Limitation: watched state changes alone are not re-mirrored immediately, because Jellyfin only pushes user-data saves to the built-in "Nfo" saver. They are written on the next metadata save or full sync.
 
-The plugin config page shows the NFO root, a "Sync now" button, the last sync result, a warning for libraries where the built-in Nfo saver or reader is still enabled, and an error if the NFO root overlaps a library. The plugin never changes library settings itself.
+The plugin config page shows the NFO root, a "Sync now" button, the last sync result, a warning for libraries where the built-in Nfo saver is still ticked or the Nfo reader is ranked above NFO Mirror, and an error if the NFO root overlaps a library. The plugin never changes library settings itself.
 
 ## Building
 

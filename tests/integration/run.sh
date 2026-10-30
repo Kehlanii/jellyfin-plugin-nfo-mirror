@@ -33,9 +33,11 @@ make_media() {
         -loglevel error -f lavfi -i color=black:s=64x64:d=1 -c:v libx264 -t 1 /m/sample.mkv
     for f in "movies/Qzxv Testmovie One (2001).mkv" "movies/Qzxv Testmovie Two (2002).mkv" \
              "movies/Zażółć gęślą Testfilm (2020).mkv" \
+             "movies/Qzxv Versions (2003) - 1080p.mkv" "movies/Qzxv Versions (2003) - 720p.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.mkv" \
              "shows/Testshow Qzx/Season 01/Testshow Qzx S01E02.mkv" \
-             "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03.mkv"; do
+             "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03.mkv" \
+             "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03 - 720p.mkv"; do
         cp "$work/media/sample.mkv" "$work/media/$f"
     done
     rm "$work/media/sample.mkv"
@@ -103,11 +105,14 @@ expected_nfos=(
     "movies/Qzxv Testmovie One (2001).nfo"
     "movies/Qzxv Testmovie Two (2002).nfo"
     "movies/Zażółć gęślą Testfilm (2020).nfo"
+    "movies/Qzxv Versions (2003) - 1080p.nfo"
+    "movies/Qzxv Versions (2003) - 720p.nfo"
     "shows/Testshow Qzx/tvshow.nfo"
     "shows/Testshow Qzx/Season 01/season.nfo"
     "shows/Testshow Qzx/Season 01/Testshow Qzx S01E01.nfo"
     "shows/Testshow Qzx/Season 01/Testshow Qzx S01E02.nfo"
     "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03.nfo"
+    "shows/Testshow Qzx/Season 01/Testshow Qzx S01E03 - 720p.nfo"
 )
 
 # $work is wiped below, so only accept a dedicated scratch folder.
@@ -133,6 +138,7 @@ echo "last sync: $(call GET /Plugins/03136b88-4248-4296-a0ea-29bf7e8a9c00/Config
 for f in "${expected_nfos[@]}"; do
     check "exists /NFO/$f" '[ -f "$work/nfo/$f" ]'
 done
+echo "versions as seen by Jellyfin: $(call GET "/Items?recursive=true&includeItemTypes=Movie,Episode&fields=MediaSources,Path" | jq -c '[.Items[] | select((.MediaSources | length) > 1 or (.Path | test("720p|Versions"))) | {Name, Path, versions: (.MediaSources | length)}]')"
 check "only expected .nfo files in /NFO" '[ "$(cd "$work/nfo" && find . -type f | wc -l)" -eq ${#expected_nfos[@]} ]'
 check "nfo has movie root element" 'grep -q "<movie>" "$work/nfo/movies/Qzxv Testmovie One (2001).nfo"'
 check "nothing written to media mounts (first run)" '[ "$(snapshot_media)" = "$before_media" ]'
@@ -166,6 +172,7 @@ rm "$work/media/movies/Qzxv Testmovie Two (2002).mkv"
 before_media="$(snapshot_media)"
 scan_and_sync
 echo "last sync: $(call GET /Plugins/03136b88-4248-4296-a0ea-29bf7e8a9c00/Configuration | jq -r .LastSyncResult)"
+check "alternate versions not swept" '[ -z "$(find "$work/nfo/.orphans" -name "*Versions*" -o -name "*720p*" 2>/dev/null)" ]'
 check "orphan moved to .orphans" '[ -f "$work/nfo/.orphans/movies/Qzxv Testmovie Two (2002).nfo" ] && [ ! -f "$work/nfo/movies/Qzxv Testmovie Two (2002).nfo" ]'
 check "other NFOs kept" '[ -f "$work/nfo/movies/Qzxv Testmovie One (2001).nfo" ]'
 

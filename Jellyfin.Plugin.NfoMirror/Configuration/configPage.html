@@ -11,9 +11,9 @@
                 <div id="nfoRootError" style="display: none; background-color: #fdecea; border: 1px solid #c62828; border-radius: .25em; color: #8b1a1a; padding: .75em 1em; margin-bottom: 1em;"></div>
 
                 <div id="nfoSaversWarning" style="display: none; background-color: #fff8e1; border: 1px solid #f9a825; border-radius: .25em; color: #5d4037; padding: .75em 1em; margin-bottom: 1em;">
-                    <div style="font-weight: 600; margin-bottom: .5em;">Built-in Nfo still enabled</div>
+                    <div style="font-weight: 600; margin-bottom: .5em;">Built-in Nfo still active</div>
                     <ul id="nfoSaversList" style="margin: 0 0 .5em; padding-left: 1.25em;"></ul>
-                    <div>Open Dashboard &gt; Libraries &gt; (library) and untick Nfo under Metadata savers and Metadata readers. NFO Mirror never changes library settings itself.</div>
+                    <div>Open Dashboard &gt; Libraries &gt; (library) &gt; Manage library: untick Nfo under Metadata savers and move NFO Mirror to the top of Metadata readers. NFO Mirror never changes library settings itself.</div>
                 </div>
 
                 <form id="NfoMirrorConfigForm">
@@ -64,15 +64,14 @@
                 return options.SaveLocalMetadata === true;
             }
 
-            function hasNfoReader(options) {
-                var disabled = options.DisabledLocalMetadataReaders;
-                if (!Array.isArray(disabled)) {
-                    return true;
-                }
-
-                return !disabled.some(function (reader) {
-                    return typeof reader === 'string' && reader.toLowerCase() === 'nfo';
+            // 12.4 readers have no checkbox; the first reader that finds a file wins, so only the order matters.
+            function nfoReaderAhead(options) {
+                var order = (options.LocalMetadataReaderOrder || []).map(function (name) {
+                    return String(name).toLowerCase();
                 });
+                var mirror = order.indexOf('nfo mirror');
+                var nfo = order.indexOf('nfo');
+                return mirror === -1 || (nfo !== -1 && nfo < mirror);
             }
 
             function isVideoLibrary(library) {
@@ -118,11 +117,11 @@
                     var options = library.LibraryOptions || {};
                     var parts = [];
                     if (hasNfoSaver(options)) {
-                        parts.push('saver');
+                        parts.push('Nfo saver ticked');
                     }
 
-                    if (hasNfoReader(options)) {
-                        parts.push('reader');
+                    if (nfoReaderAhead(options)) {
+                        parts.push('Nfo reader ranked above NFO Mirror');
                     }
 
                     if (!parts.length) {

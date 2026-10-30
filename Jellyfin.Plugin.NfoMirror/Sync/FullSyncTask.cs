@@ -66,17 +66,25 @@ public class FullSyncTask : IScheduledTask
             .Select(MirrorPaths.Normalize)
             .ToList();
 
+        // Default queries hide alternate versions and other owned items, but the saver writes NFOs for them too.
         var items = _libraryManager.GetItemList(new InternalItemsQuery
         {
             IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series, BaseItemKind.Season, BaseItemKind.Episode],
             IsVirtualItem = false,
-            Recursive = true
+            Recursive = true,
+            IncludeOwnedItems = true
         })
             .Where(i => !string.IsNullOrEmpty(i.Path))
             .ToList();
 
+        _logger.LogInformation(
+            "NFO Mirror full sync: root {Root}, {Items} items, Movies/Shows library roots: {Libraries}",
+            root,
+            items.Count,
+            string.Join(", ", libraryRoots));
+
         var expected = new HashSet<string>(StringComparer.Ordinal);
-        int created = 0, updated = 0, unchanged = 0, skipped = 0, failed = 0;
+        int created = 0, updated = 0, unchanged = 0, outsideLibraries = 0, notSaveable = 0, failed = 0;
 
         for (var i = 0; i < items.Count; i++)
         {
@@ -90,9 +98,15 @@ public class FullSyncTask : IScheduledTask
             }
 
             var path = MirrorPaths.Normalize(item.Path);
-            if (!libraryRoots.Any(r => MirrorPaths.IsUnder(r, path)) || !_saver.IsEnabledFor(item, ItemUpdateType.MetadataEdit))
+            if (!libraryRoots.Any(r => MirrorPaths.IsUnder(r, path)))
             {
-                skipped++;
+                outsideLibraries++;
+                _logger.LogDebug("NFO Mirror skipped {Path}: not in a Movies/Shows library", item.Path);
+            }
+            else if (!_saver.IsEnabledFor(item, ItemUpdateType.MetadataEdit))
+            {
+                notSaveable++;
+                _logger.LogDebug("NFO Mirror skipped {Path}: Jellyfin's NFO saver does not handle this item", item.Path);
             }
             else
             {
@@ -136,11 +150,25 @@ public class FullSyncTask : IScheduledTask
         if (sweep.SkippedReason is not null)
         {
             _logger.LogWarning("NFO Mirror skipped orphan sweep: {Reason}", sweep.SkippedReason);
+            foreach (var candidate in sweep.Candidates.Take(50))
+            {
+                _logger.LogWarning("NFO Mirror orphan candidate (not moved): {Path}", candidate);
+            }
+        }
+
+        foreach (var move in sweep.MovedFiles)
+        {
+            _logger.LogInformation("NFO Mirror moved orphan {From} to {To}", move.From, move.To);
         }
 
         progress.Report(100);
-        var orphanText = sweep.SkippedReason is null ? $"{sweep.Moved} orphans moved" : $"orphan sweep skipped ({sweep.SkippedReason})";
-        SaveResult($"{created} created, {updated} updated, {unchanged} unchanged, {skipped} skipped, {failed} failed; {orphanText}.");
+        var orphanText = sweep.SkippedReason is null
+            ? $"{sweep.Moved} of {sweep.Total} NFOs moved to {MirrorPaths.OrphansFolder}"
+            : $"orphan sweep skipped ({sweep.SkippedReason})";
+        SaveResult(
+            $"{items.Count} items: {created} created, {updated} updated, {unchanged} unchanged, "
+            + $"{outsideLibraries} skipped (not in a Movies/Shows library), {notSaveable} skipped (extras or non-file items), "
+            + $"{failed} failed; {orphanText}. Details in the Jellyfin log.");
     }
 
     private void SaveResult(string summary)
