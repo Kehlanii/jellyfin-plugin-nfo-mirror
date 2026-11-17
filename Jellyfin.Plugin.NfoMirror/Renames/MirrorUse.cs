@@ -15,6 +15,11 @@ internal static class MirrorUse
     {
         try
         {
+            if (LibraryRootOffline(libraryManager, record.MediaPath))
+            {
+                return true;
+            }
+
             return record.Kind is MediaKind.Series or MediaKind.Season
                 ? FolderInUse(libraryManager, record)
                 : FileInUse(libraryManager, root, record);
@@ -23,6 +28,20 @@ internal static class MirrorUse
         {
             return true;
         }
+    }
+
+    // An unreachable share makes old folders look deleted, so nothing moves while it is down.
+    private static bool LibraryRootOffline(ILibraryManager libraryManager, string mediaPath)
+    {
+        var media = MirrorPaths.Normalize(mediaPath);
+        var libraryRoot = libraryManager.GetVirtualFolders()
+            .SelectMany(f => f.Locations ?? [])
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .Select(MirrorPaths.Normalize)
+            .Where(l => MirrorPaths.IsUnder(l, media))
+            .OrderByDescending(l => l.Length)
+            .FirstOrDefault();
+        return libraryRoot is not null && (!Directory.Exists(libraryRoot) || !Directory.EnumerateFileSystemEntries(libraryRoot).Any());
     }
 
     private static bool FolderInUse(ILibraryManager libraryManager, RemovalRecord record)

@@ -38,12 +38,12 @@
                             <option value="Preview">Preview</option>
                             <option value="On">On</option>
                         </select>
-                        <div class="fieldDescription">When media is renamed or moved, move its existing NFO to the new path so your edits are kept. Preview only lists what would move. Nothing is ever deleted.</div>
+                        <div class="fieldDescription">When media is renamed or moved, move its existing NFO to the new path so your edits are kept. Preview only lists what would move. No NFO is ever deleted.</div>
                     </div>
                     <div class="inputContainer">
                         <label class="inputLabel inputLabelUnfocused" for="txtOrphanRetentionDays">Delete orphans after (days)</label>
                         <input id="txtOrphanRetentionDays" name="txtOrphanRetentionDays" type="number" min="0" step="1" is="emby-input" />
-                        <div class="fieldDescription">Files in .orphans older than this are deleted by the full sync. 0 keeps them forever.</div>
+                        <div class="fieldDescription">Files in .orphans older than this are deleted by the full sync while the orphan sweep is Preview or Move. The first full sync after upgrading only stamps existing orphans with the current time. 0 keeps them forever.</div>
                     </div>
                     <div>
                         <button is="emby-button" type="submit" class="raised button-submit block emby-button">

@@ -79,7 +79,7 @@ Recommendation: run a full sync in Preview, check the list, then switch to Move.
 
 When you rename or move a movie, an episode, a season folder or a show folder, Jellyfin removes the old item and adds a new one. That includes a move between libraries. NFO Mirror moves the existing NFO to the new mirror path during the library scan, before Jellyfin fetches fresh metadata, so the new item keeps your edited titles and ids.
 
-The plugin matches the new item to the removed one by provider id first, then by exact file size, then by file name. For a folder it compares the file names inside the folder. When more than one old item fits, the match is ambiguous and the plugin leaves the NFO alone.
+The plugin matches the new item to the removed one by exact file size, then by file name. For a folder it compares the file names inside the folder. Provider ids cannot help here, because Jellyfin has not scraped the new item yet when the plugin reads it; they are used for the possible-rename report below. Nothing moves while the old item's library root is unreachable or empty. When more than one old item fits, the match is ambiguous and the plugin leaves the NFO alone.
 
 A follow never overwrites an NFO that already exists at the new path, and never takes an NFO that a current item still uses, such as the shared `movie.nfo` of another version in the old folder. A match by file name or by folder contents only counts when the old folder is gone.
 
