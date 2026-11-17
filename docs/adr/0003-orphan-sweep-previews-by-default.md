@@ -24,3 +24,11 @@ Version 1.0.0.0 moved 240 of about 30,000 NFOs to `.orphans` on a real server. T
 - Orphans are not moved until the user has seen a preview and switched the mode to Move.
 - A plugin bug that misclassifies NFOs costs a preview, not moved files; files moved by such a bug come back on the next sync once fixed.
 - `.orphans` can grow without bound; cleaning it is a manual job.
+
+## Revision 2026-11-17: optional purge
+
+The user asked for old orphans to be removed eventually. The "never deletes" rule now has one opt-in exception:
+
+- A setting deletes files in `.orphans` that were moved there more than N days ago. 0 means never and is the default.
+- The age counts from the move: the sweep stamps a file's modification time when it moves it to `.orphans`.
+- Only full sync purges, only inside `.orphans`, and never while the sweep is skipped for an unreachable or empty library root.

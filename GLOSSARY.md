@@ -47,3 +47,19 @@ The first orphan sweep after the plugin is installed or upgraded. It always runs
 ## Auto-restore
 
 Moving an NFO back out of `.orphans` to its mirror path when a current item maps to that path again and no NFO exists there.
+
+## Rename-follow
+
+Moving an item's existing NFO from its old mirror path to the new one when the media is renamed or moved, so the user's edits survive. It never overwrites an NFO that already exists at the new path.
+
+## Removal record
+
+What the plugin remembers, in memory, about an item Jellyfin just removed: its old mirror path, provider ids, file size and media path. Rename-follow matches new items against these records.
+
+## Possible rename
+
+An orphaned NFO whose `<uniqueid>` values match a current item that already has its own NFO. Full sync lists it; nothing is moved.
+
+## Orphan retention
+
+The number of days a file stays in `.orphans` before full sync deletes it. 0 means never and is the default.
