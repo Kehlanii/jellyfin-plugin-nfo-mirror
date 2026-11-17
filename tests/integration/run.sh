@@ -16,20 +16,7 @@ token=""
 fails=0
 plugin_id=03136b88-4248-4296-a0ea-29bf7e8a9c00
 
-config() { call GET "/Plugins/$plugin_id/Configuration" | jq -r "$1"; }
-set_sweep_mode() { call POST "/Plugins/$plugin_id/Configuration" "$(call GET "/Plugins/$plugin_id/Configuration" | jq --arg m "$1" '.SweepMode = $m')" >/dev/null; }
-activity_count() { call GET "/NfoMirror/Activity?after=0" | jq --arg k "$1" '[.Lines[] | select(.Kind == $k)] | length'; }
-
-pass() { echo "PASS: $*"; }
-fail() { echo "FAIL: $*"; fails=$((fails + 1)); }
-check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
-
-call() {
-    local method=$1 path=$2 body=${3:-}
-    local h="$auth_header"
-    [ -n "$token" ] && h="$h, Token=\"$token\""
-    curl -fsS -X "$method" "$api$path" -H "Authorization: $h" -H 'Content-Type: application/json' ${body:+-d "$body"}
-}
+. "$(dirname "$0")/lib.sh"
 
 make_media() {
     local ff="/usr/lib/jellyfin-ffmpeg/ffmpeg"
@@ -49,64 +36,16 @@ make_media() {
     rm "$work/media/sample.mkv"
 }
 
-install_plugin() {
-    mkdir -p "$work/config/plugins/NFO Mirror"
-    unzip -qo "$zip" -d "$work/config/plugins/NFO Mirror"
-}
-
 start() {
-    podman run -d --name "$name" -p "127.0.0.1:$port:8096" \
-        -v "$work/config:/config:Z" -v "$work/cache:/cache:Z" \
-        -v "$work/media/movies:/movies:ro,Z" -v "$work/media/shows:/shows:ro,Z" -v "$work/media/mixed:/mixed:ro,Z" \
-        -v "$work/nfo:/NFO:Z" "$image" >/dev/null
-    for _ in $(seq 120); do
-        # Info/Public answers before startup finishes; the wizard endpoints 503 until then.
-        curl -fsS "$api/Startup/Configuration" -H "Authorization: $auth_header" >/dev/null 2>&1 && return 0
-        sleep 1
-    done
-    echo "Jellyfin did not start"; podman logs --tail 50 "$name"; exit 1
+    start_container -v "$work/media/movies:/movies:ro,Z" -v "$work/media/shows:/shows:ro,Z" -v "$work/media/mixed:/mixed:ro,Z"
 }
-
-stop() { podman rm -f "$name" >/dev/null 2>&1 || true; }
 
 setup_server() {
-    token=""
-    call POST /Startup/Configuration '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}' >/dev/null
-    call GET /Startup/User >/dev/null
-    call POST /Startup/User '{"Name":"admin","Password":"admin"}' >/dev/null
-    call POST /Startup/Complete >/dev/null
-    token="$(call POST /Users/AuthenticateByName '{"Username":"admin","Pw":"admin"}' | jq -r .AccessToken)"
-
-    # Library settings exactly as in the README.
-    local opts='{"LibraryOptions":{"MetadataSavers":["NFO Mirror"],"LocalMetadataReaderOrder":["NFO Mirror","Nfo"],"PathInfos":[{"Path":"PATH"}]}}'
-    call POST "/Library/VirtualFolders?name=movies&collectionType=movies&refreshLibrary=false" "${opts/PATH//movies}" >/dev/null
-    call POST "/Library/VirtualFolders?name=shows&collectionType=tvshows&refreshLibrary=false" "${opts/PATH//shows}" >/dev/null
-    call POST "/Library/VirtualFolders?name=mixed&collectionType=mixed&refreshLibrary=false" "${opts/PATH//mixed}" >/dev/null
+    wizard
+    add_library movies movies /movies
+    add_library shows tvshows /shows
+    add_library mixed mixed /mixed
 }
-
-task_id() { call GET /ScheduledTasks | jq -r --arg k "$1" '.[] | select(.Key == $k) | .Id'; }
-task_end() { call GET "/ScheduledTasks/$1" | jq -r '.LastExecutionResult.EndTimeUtc // ""'; }
-
-run_task() {
-    local id before
-    id="$(task_id "$1")"
-    before="$(task_end "$id")"
-    call POST "/ScheduledTasks/Running/$id" >/dev/null
-    for _ in $(seq 300); do
-        sleep 1
-        local now state
-        now="$(task_end "$id")"; state="$(call GET "/ScheduledTasks/$id" | jq -r .State)"
-        [ "$now" != "$before" ] && [ "$state" = Idle ] && return 0
-    done
-    echo "Task $1 did not finish"; return 1
-}
-
-scan_and_sync() {
-    run_task RefreshLibrary
-    run_task NfoMirrorFullSync
-}
-
-snapshot_media() { (cd "$work/media" && find . -printf '%p %s %T@\n' | sort); }
 
 expected_nfos=(
     "movies/Qzxv Testmovie One (2001).nfo"
