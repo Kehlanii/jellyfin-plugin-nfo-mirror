@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "1.2.0.0",
+        "changelog": "Renamed or moved movies, episodes, seasons and shows keep their NFO and your edits (Follow renames, default On). Optional purge of old files in .orphans (default off). Full sync reports possible renames. New read-only /NfoMirror/Check endpoint and scripts/check-invariants.sh.",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Kehlanii/jellyfin-plugin-nfo-mirror/releases/download/v1.2.0.0/nfo-mirror_1.2.0.0.zip",
+        "checksum": "bef940b28da706a98bc4eb962c66305e",
+        "timestamp": "2026-11-17T21:40:41Z"
+      },
+      {
         "version": "1.1.1.0",
         "changelog": "Full sync now covers Mixed Movies and Shows libraries instead of skipping their items.",
         "targetAbi": "12.4.0.0",
