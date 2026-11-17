@@ -5,7 +5,7 @@ set -euo pipefail
 : "${JELLYFIN_URL:?set JELLYFIN_URL}"
 : "${JELLYFIN_API_KEY:?set JELLYFIN_API_KEY}"
 
-result=$(curl -fsS "$JELLYFIN_URL/NfoMirror/Check?api_key=$JELLYFIN_API_KEY")
+result=$(curl -fsS "$JELLYFIN_URL/NfoMirror/Check" -H "Authorization: MediaBrowser Token=\"$JELLYFIN_API_KEY\"")
 echo "$result" | jq
 
 echo "$result" | jq -r '"items=\(.Items // .items) missing=\(.MissingCount // .missingCount) unmapped=\(.UnmappedCount // .unmappedCount) orphans=\(.Orphans // .orphans)"'

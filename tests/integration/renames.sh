@@ -240,7 +240,7 @@ set_config '.FollowRenames = "On"'
 echo "== retention"
 rm "$media/movies/Epsilon Movie (2006).mkv"
 set_config '.OrphanRetentionDays = 1'
-run_task NfoMirrorFullSync
+scan_and_sync
 check "Delta orphan present before purge" '[ -f "$nfo/.orphans/movies/Delta Movie (2004).nfo" ]'
 touch -d '3 days ago' "$nfo/.orphans/movies/Delta Movie (2004).nfo" 2>/dev/null || true
 run_task NfoMirrorFullSync
