@@ -65,7 +65,7 @@ An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usua
 - Preview (default): the sweep lists the NFOs that no item maps to and moves nothing. The config page shows the count and the first 100 paths.
 - Move: the sweep moves each orphan to `/NFO/.orphans/<same path>`.
 
-"Delete orphans after (days)" on the config page deletes old files in `.orphans`. 0 means never and is the default. The age counts from when the sweep moved the file to `.orphans`. Only the full sync deletes, only inside `.orphans`, and nothing is deleted when the sweep is skipped because a library root is unreachable or empty.
+"Delete orphans after (days)" on the config page deletes old files in `.orphans`. 0 means never and is the default. The age counts from when the sweep moved the file to `.orphans`. Only the full sync deletes, only inside `.orphans`, and only while the orphan sweep is Preview or Move. Nothing is deleted during the baseline sweep or when the sweep is skipped because a library root is unreachable or empty. Files moved to `.orphans` by a version before 1.2.0.0 keep their old modification time, so they may be deleted on the first full sync after you set this.
 
 The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
 
