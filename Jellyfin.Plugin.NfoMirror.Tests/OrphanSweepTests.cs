@@ -254,6 +254,37 @@ public sealed class OrphanSweepTests : IDisposable
         Assert.Empty(Directory.EnumerateFileSystemEntries(orphans));
     }
 
+    [Fact]
+    public void StampAllGivesEveryOrphanAFreshTime()
+    {
+        var a = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/a.nfo");
+        var b = WriteNfo($"{MirrorPaths.OrphansFolder}/shows/Show/b.nfo.20260101000000");
+        File.SetLastWriteTimeUtc(a, DateTime.UtcNow.AddDays(-90));
+        File.SetLastWriteTimeUtc(b, DateTime.UtcNow.AddDays(-90));
+
+        Assert.Equal(2, OrphanSweep.StampAll(_root));
+
+        Assert.True(DateTime.UtcNow - File.GetLastWriteTimeUtc(a) < TimeSpan.FromMinutes(5));
+        Assert.True(DateTime.UtcNow - File.GetLastWriteTimeUtc(b) < TimeSpan.FromMinutes(5));
+        Assert.Equal(0, OrphanSweep.StampAll(Path.Combine(_baseDir, "nfo-none")));
+    }
+
+    [Fact]
+    public void PurgeDeletesAgedTimestampedCopyAndKeepsFreshOne()
+    {
+        var aged = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/a.nfo.20260101000000");
+        var fresh = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/b.nfo.20260102000000");
+        var other = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/c.txt");
+        File.SetLastWriteTimeUtc(aged, DateTime.UtcNow.AddDays(-40));
+        File.SetLastWriteTimeUtc(other, DateTime.UtcNow.AddDays(-40));
+
+        var deleted = OrphanSweep.Purge(_root, TimeSpan.FromDays(30));
+
+        Assert.Equal(aged, Assert.Single(deleted));
+        Assert.True(File.Exists(fresh));
+        Assert.True(File.Exists(other));
+    }
+
     private HashSet<string> CreateExpectedFiles()
         => new(StringComparer.Ordinal)
         {

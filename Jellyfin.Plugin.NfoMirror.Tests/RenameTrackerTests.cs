@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -42,7 +43,7 @@ public sealed class RenameTrackerTests : IDisposable
         Record(MediaKind.Movie, "movies/Old.mkv", oldNfo, size: 1234);
         var newMedia = Media("movies/New.mkv", 1234);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 1234), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 1234), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.True(result.Moved);
@@ -59,7 +60,7 @@ public sealed class RenameTrackerTests : IDisposable
         Record(MediaKind.Movie, "movies/Old Folder/Shrek.mkv", oldNfo, size: 10);
         var newMedia = Media("movies/New Folder/Shrek.mkv", 20);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: null), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: null), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.Equal("file name", result.Reason);
@@ -78,7 +79,7 @@ public sealed class RenameTrackerTests : IDisposable
         var newMedia = Media("movies/New.mkv", 500);
         var ids = new Dictionary<string, string> { ["imdb"] = " tt1 " };
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 500, ids: ids), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 500, ids: ids), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.Equal("provider id", result.Reason);
@@ -95,7 +96,7 @@ public sealed class RenameTrackerTests : IDisposable
         Record(MediaKind.Movie, "movies/B.mkv", second, size: 700);
         var newMedia = Media("movies/C.mkv", 700);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 700), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 700), FollowMode.On, _ => false);
 
         Assert.Null(result);
         Assert.True(File.Exists(first));
@@ -118,7 +119,7 @@ public sealed class RenameTrackerTests : IDisposable
         Media("shows/Show/Season 01/E01.mkv", 11);
         Media("shows/Show/Season 01/E02.mkv", 12);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.Equal("folder contents", result.Reason);
@@ -146,7 +147,7 @@ public sealed class RenameTrackerTests : IDisposable
         Media("shows/New/Season 1/E01.mkv", 31);
         Media("shows/New/Season 1/E02.mkv", 32);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Series, newDir), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Series, newDir), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.Equal(4, result.Files);
@@ -167,7 +168,7 @@ public sealed class RenameTrackerTests : IDisposable
         var newMedia = Media("movies/New.mkv", 50);
         var occupied = Nfo("media/movies/New.nfo", "live");
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 50), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 50), FollowMode.On, _ => false);
 
         Assert.Null(result);
         Assert.Equal("live", File.ReadAllText(occupied));
@@ -189,7 +190,7 @@ public sealed class RenameTrackerTests : IDisposable
         Media("shows/Show/Season 01/E02.mkv", 12);
         var existing = Nfo("media/shows/Show/Season 01/E01.nfo", "live");
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.Equal(1, result.Conflicts);
@@ -207,7 +208,7 @@ public sealed class RenameTrackerTests : IDisposable
         var newMedia = Media("movies/New.mkv", 42);
         var item = Item(MediaKind.Movie, newMedia, size: 42);
 
-        var preview = _tracker.TryFollow(_root, item, FollowMode.Preview);
+        var preview = _tracker.TryFollow(_root, item, FollowMode.Preview, _ => false);
 
         Assert.NotNull(preview);
         Assert.False(preview.Moved);
@@ -215,7 +216,7 @@ public sealed class RenameTrackerTests : IDisposable
         Assert.True(File.Exists(oldNfo));
         Assert.False(File.Exists(MirrorFor(newMedia)));
         Assert.Equal(1, _tracker.Count);
-        Assert.Null(_tracker.TryFollow(_root, item, FollowMode.Off));
+        Assert.Null(_tracker.TryFollow(_root, item, FollowMode.Off, _ => false));
         Assert.True(File.Exists(oldNfo));
     }
 
@@ -226,7 +227,7 @@ public sealed class RenameTrackerTests : IDisposable
         Record(MediaKind.Movie, "movies/Old.mkv", Path.Combine(_root, "media", "movies", "Old.nfo"), size: 77);
         var newMedia = Media("movies/New.mkv", 77);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 77), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 77), FollowMode.On, _ => false);
 
         Assert.NotNull(result);
         Assert.True(result.Moved);
@@ -243,7 +244,7 @@ public sealed class RenameTrackerTests : IDisposable
         var newMedia = Media("movies/New.mkv", 5);
         _now += RenameTracker.MaxAge + TimeSpan.FromMinutes(1);
 
-        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 5), FollowMode.On);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 5), FollowMode.On, _ => false);
 
         Assert.Null(result);
         Assert.True(File.Exists(oldNfo));
@@ -259,10 +260,122 @@ public sealed class RenameTrackerTests : IDisposable
         Record(MediaKind.Movie, "movies/Old.mkv", outside, size: 9);
         var newMedia = Media("movies/New.mkv", 9);
 
-        Assert.Throws<InvalidOperationException>(() => _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 9), FollowMode.On));
+        Assert.Throws<InvalidOperationException>(() => _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 9), FollowMode.On, _ => false));
 
         Assert.True(File.Exists(outside));
         Assert.False(File.Exists(MirrorFor(newMedia)));
+    }
+
+    [Fact]
+    public void InUseRecordIsNotFollowedAndIsDropped()
+    {
+        var oldNfo = Nfo("movies/Old.nfo", "old");
+        Record(MediaKind.Movie, "movies/Old.mkv", oldNfo, size: 61);
+        var newMedia = Media("movies/New.mkv", 61);
+
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 61), FollowMode.On, _ => true);
+
+        Assert.Null(result);
+        Assert.Equal("old", File.ReadAllText(oldNfo));
+        Assert.False(File.Exists(MirrorFor(newMedia)));
+        Assert.Equal(0, _tracker.Count);
+    }
+
+    [Fact]
+    public void ExtensionChangeRecordIsDroppedWhenTargetExists()
+    {
+        Nfo("media/movies/B.nfo", "live");
+        Record(MediaKind.Movie, "movies/B.mkv", Path.Combine(_root, "media", "movies", "B.nfo"), size: 8);
+        var newMedia = Media("movies/B.mp4", 8);
+
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia, size: 8), FollowMode.On, _ => false);
+
+        Assert.Null(result);
+        Assert.Equal(0, _tracker.Count);
+        Assert.Equal("live", File.ReadAllText(MirrorFor(newMedia)));
+    }
+
+    [Fact]
+    public void NameMatchNeedsTheOldFolderGone()
+    {
+        var oldNfo = Nfo("movies/Old Folder/Shrek.nfo", "edited");
+        Record(MediaKind.Movie, "movies/Old Folder/Shrek.mkv", oldNfo, size: 10);
+        var oldDir = Path.Combine(_baseDir, "media", "movies", "Old Folder");
+        Directory.CreateDirectory(oldDir);
+        var newMedia = Media("movies/New Folder/Shrek.mkv", 20);
+
+        Assert.Null(_tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia), FollowMode.On, _ => false));
+        Assert.True(File.Exists(oldNfo));
+
+        Directory.Delete(oldDir);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Movie, newMedia), FollowMode.On, _ => false);
+
+        Assert.NotNull(result);
+        Assert.Equal("file name", result.Reason);
+    }
+
+    [Fact]
+    public void FolderContentsNeedsTheOldFolderGone()
+    {
+        var oldDir = "shows/Show/Season 1";
+        var seasonNfo = Nfo($"{oldDir}/season.nfo", "season");
+        Record(MediaKind.Season, oldDir, seasonNfo);
+        Record(MediaKind.Episode, $"{oldDir}/E01.mkv", Nfo($"{oldDir}/E01.nfo", "e1"), size: 1);
+        var oldMedia = Path.Combine(_baseDir, "media", oldDir);
+        Directory.CreateDirectory(oldMedia);
+        var newDir = Path.Combine(_baseDir, "media", "shows/Show/Season 01");
+        Media("shows/Show/Season 01/E01.mkv", 11);
+
+        Assert.Null(_tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On, _ => false));
+        Assert.True(File.Exists(seasonNfo));
+
+        Directory.Delete(oldMedia);
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On, _ => false);
+
+        Assert.NotNull(result);
+        Assert.Equal("folder contents", result.Reason);
+    }
+
+    [Fact]
+    public void FolderFollowMovesOnlyNfoFiles()
+    {
+        var oldDir = "shows/Show/Season 1";
+        var seasonNfo = Nfo($"{oldDir}/season.nfo", "season");
+        var copy = Nfo($"{oldDir}/tvshow.nfo.20261117", "copy");
+        Record(MediaKind.Season, oldDir, seasonNfo);
+        Record(MediaKind.Episode, $"{oldDir}/E01.mkv", Nfo($"{oldDir}/E01.nfo", "e1"), size: 1);
+        var newDir = Path.Combine(_baseDir, "media", "shows/Show/Season 01");
+        Media("shows/Show/Season 01/E01.mkv", 11);
+
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Season, newDir), FollowMode.On, _ => false);
+
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Files);
+        Assert.Equal("copy", File.ReadAllText(copy));
+    }
+
+    [Fact]
+    public void ManyRecordsStayFast()
+    {
+        for (var show = 0; show < 500; show++)
+        {
+            var folder = Path.Combine(_baseDir, "media", "shows", $"Show {show}");
+            _tracker.Record(new RemovalRecord(MediaKind.Series, folder, Path.Combine(_root, "media", "shows", $"Show {show}", "tvshow.nfo"), null, NoIds, _now));
+            for (var e = 0; e < 100; e++)
+            {
+                var media = Path.Combine(folder, $"Season {e % 4}", $"E{e}.mkv");
+                _tracker.Record(new RemovalRecord(MediaKind.Episode, media, Path.ChangeExtension(Path.Combine(_root, Path.GetRelativePath(_baseDir, media)), ".nfo"), e, NoIds, _now));
+            }
+        }
+
+        var newDir = Path.Combine(_baseDir, "media", "shows", "Brand New");
+        Directory.CreateDirectory(newDir);
+        var watch = Stopwatch.StartNew();
+        var result = _tracker.TryFollow(_root, Item(MediaKind.Series, newDir), FollowMode.On, _ => false);
+        watch.Stop();
+
+        Assert.Null(result);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(2), $"took {watch.Elapsed}");
     }
 
     private string Media(string relative, int length)

@@ -9,6 +9,8 @@ using Jellyfin.Plugin.NfoMirror.Configuration;
 using Jellyfin.Plugin.NfoMirror.Renames;
 using Jellyfin.Plugin.NfoMirror.Savers;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Entities;
@@ -255,7 +257,19 @@ public sealed class SyncRunner
             text += $", {renames} possible renames";
         }
 
-        var purged = Purge(root, config, sweep);
+        var purged = 0;
+        if (sweep.SkippedReason is null)
+        {
+            if (!config.OrphanAgesStamped)
+            {
+                StampOrphans(root);
+            }
+            else if (!baseline)
+            {
+                purged = Purge(root, config);
+            }
+        }
+
         if (purged > 0)
         {
             text += $", {purged} purged from {MirrorPaths.OrphansFolder}";
@@ -288,14 +302,14 @@ public sealed class SyncRunner
         var movedTo = sweep.MovedFiles.ToDictionary(m => m.From, m => m.To, StringComparer.Ordinal);
         foreach (var orphan in sweep.Orphans)
         {
-            var ids = NfoIds.Read(movedTo.GetValueOrDefault(orphan, orphan));
-            if (ids.Count == 0)
+            var ids = NfoIds.Read(movedTo.GetValueOrDefault(orphan, orphan), out var rootElement);
+            if (ids.Count == 0 || KindOf(rootElement) is not { } kind)
             {
                 continue;
             }
 
             var matches = inventory.Items
-                .Where(i => i.Mirror is not null && ProviderIdMatch.Shares(ids, i.Item.ProviderIds) && File.Exists(i.Mirror))
+                .Where(i => i.Mirror is not null && kind(i.Item) && ProviderIdMatch.Shares(ids, i.Item.ProviderIds) && File.Exists(i.Mirror))
                 .Take(2)
                 .ToList();
             if (matches.Count != 1)
@@ -311,9 +325,33 @@ public sealed class SyncRunner
         return count;
     }
 
-    private int Purge(string root, PluginConfiguration config, SweepResult sweep)
+    private void StampOrphans(string root)
     {
-        if (config.OrphanRetentionDays <= 0 || sweep.SkippedReason is not null)
+        try
+        {
+            var stamped = OrphanSweep.StampAll(root);
+            _configChanges.Add(c => c.OrphanAgesStamped = true);
+            _logger.LogInformation("NFO Mirror stamped {Count} files in {Orphans}", stamped, MirrorPaths.OrphansFolder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "NFO Mirror could not stamp {Orphans}", MirrorPaths.OrphansFolder);
+            ActivityLog.Add(ActivityKind.Failed, $"Stamp {MirrorPaths.OrphansFolder}: {ex.Message}");
+        }
+    }
+
+    private static Func<BaseItem, bool>? KindOf(string? rootElement) => rootElement switch
+    {
+        "movie" => i => i is Movie,
+        "tvshow" => i => i is Series,
+        "season" => i => i is Season,
+        "episodedetails" => i => i is Episode,
+        _ => null
+    };
+
+    private int Purge(string root, PluginConfiguration config)
+    {
+        if (config.OrphanRetentionDays <= 0)
         {
             return 0;
         }

@@ -38,7 +38,9 @@ public sealed class RenameTracker
 
     private readonly object _lock = new();
     private readonly List<RemovalRecord> _records = [];
+    private readonly Dictionary<string, List<RemovalRecord>> _byFolder = new(StringComparer.Ordinal);
     private readonly Func<DateTime> _clock;
+    private DateTime _lastDrop = DateTime.MinValue;
 
     public RenameTracker() : this(() => DateTime.UtcNow)
     {
@@ -62,15 +64,17 @@ public sealed class RenameTracker
         lock (_lock)
         {
             _records.Add(record);
-            DropExpired();
+            Index(record);
+            MaybeDropExpired();
             if (_records.Count > MaxRecords)
             {
                 _records.RemoveRange(0, _records.Count - MaxRecords);
+                Reindex();
             }
         }
     }
 
-    public FollowResult? TryFollow(string root, NewItem item, FollowMode mode)
+    public FollowResult? TryFollow(string root, NewItem item, FollowMode mode, Func<RemovalRecord, bool> inUse)
     {
         if (mode == FollowMode.Off)
         {
@@ -79,31 +83,129 @@ public sealed class RenameTracker
 
         lock (_lock)
         {
-            DropExpired();
+            MaybeDropExpired();
             if (File.Exists(item.MirrorPath))
             {
+                // Records for this path (e.g. an extension change) must not be matched later.
+                var occupied = MirrorPaths.Normalize(item.MirrorPath);
+                foreach (var stale in _records.Where(r => string.Equals(MirrorPaths.Normalize(r.MirrorPath), occupied, StringComparison.Ordinal)).ToList())
+                {
+                    RemoveRecord(stale);
+                }
+
                 return null;
             }
 
-            var candidates = _records.Where(r => r.Kind == item.Kind && !string.Equals(r.MediaPath, item.MediaPath, StringComparison.Ordinal)).ToList();
-            var (match, reason) = Match(candidates, item);
+            var cutoff = _clock() - MaxAge;
+            var candidates = _records
+                .Where(r => r.RemovedUtc >= cutoff && r.Kind == item.Kind && !string.Equals(r.MediaPath, item.MediaPath, StringComparison.Ordinal))
+                .ToList();
+            var (match, reason) = Match(candidates, item, cutoff);
             if (match is null)
             {
                 return null;
             }
 
+            if (inUse(match))
+            {
+                RemoveRecord(match);
+                return null;
+            }
+
             var isFile = item.Kind is MediaKind.Movie or MediaKind.Episode;
-            return isFile ? FollowFile(root, item, match, reason, mode) : FollowFolder(root, item, match, reason, mode);
+            try
+            {
+                return isFile ? FollowFile(root, item, match, reason, mode) : FollowFolder(root, item, match, reason, mode, cutoff);
+            }
+            catch (InvalidOperationException)
+            {
+                RemoveRecord(match);
+                throw;
+            }
         }
     }
 
-    private void DropExpired()
+    private void MaybeDropExpired()
     {
-        var cutoff = _clock() - MaxAge;
-        _records.RemoveAll(r => r.RemovedUtc < cutoff);
+        var now = _clock();
+        if (now - _lastDrop < TimeSpan.FromMinutes(1))
+        {
+            return;
+        }
+
+        _lastDrop = now;
+        var cutoff = now - MaxAge;
+        if (_records.RemoveAll(r => r.RemovedUtc < cutoff) > 0)
+        {
+            Reindex();
+        }
     }
 
-    private (RemovalRecord? Match, string Reason) Match(List<RemovalRecord> candidates, NewItem item)
+    private static IEnumerable<string> FolderKeys(RemovalRecord record)
+    {
+        if (record.Kind is not (MediaKind.Movie or MediaKind.Episode))
+        {
+            yield break;
+        }
+
+        var parent = Path.GetDirectoryName(MirrorPaths.Normalize(record.MediaPath));
+        if (parent is null)
+        {
+            yield break;
+        }
+
+        yield return parent;
+        var grandparent = Path.GetDirectoryName(parent);
+        if (grandparent is not null)
+        {
+            yield return grandparent;
+        }
+    }
+
+    private void Index(RemovalRecord record)
+    {
+        foreach (var key in FolderKeys(record))
+        {
+            if (!_byFolder.TryGetValue(key, out var list))
+            {
+                _byFolder[key] = list = [];
+            }
+
+            list.Add(record);
+        }
+    }
+
+    private void Reindex()
+    {
+        _byFolder.Clear();
+        foreach (var record in _records)
+        {
+            Index(record);
+        }
+    }
+
+    private void RemoveRecord(RemovalRecord record)
+    {
+        var at = _records.FindIndex(r => ReferenceEquals(r, record));
+        if (at >= 0)
+        {
+            _records.RemoveAt(at);
+        }
+
+        foreach (var key in FolderKeys(record))
+        {
+            if (_byFolder.TryGetValue(key, out var list))
+            {
+                list.RemoveAll(r => ReferenceEquals(r, record));
+                if (list.Count == 0)
+                {
+                    _byFolder.Remove(key);
+                }
+            }
+        }
+    }
+
+    private (RemovalRecord? Match, string Reason) Match(List<RemovalRecord> candidates, NewItem item, DateTime cutoff)
     {
         var byId = candidates.Where(r => SharesProviderId(r.ProviderIds, item.ProviderIds)).ToList();
         if (byId.Count > 0)
@@ -123,28 +225,32 @@ public sealed class RenameTracker
             }
 
             var name = Path.GetFileName(item.MediaPath);
-            var byName = candidates.Where(r => string.Equals(Path.GetFileName(r.MediaPath), name, StringComparison.Ordinal)).ToList();
+            var byName = candidates
+                .Where(r => string.Equals(Path.GetFileName(r.MediaPath), name, StringComparison.Ordinal) && !Directory.Exists(Path.GetDirectoryName(r.MediaPath)))
+                .ToList();
             return byName.Count > 0 ? (byName.Count == 1 ? byName[0] : null, "file name") : (null, string.Empty);
         }
 
         var byContents = candidates.Where(r =>
         {
-            var relatives = FolderContents(r);
+            if (Directory.Exists(r.MediaPath))
+            {
+                return false;
+            }
+
+            var relatives = FolderContents(r, cutoff);
             return relatives.Count > 0 && relatives.All(rel => File.Exists(Path.Combine(item.MediaPath, rel)));
         }).ToList();
         return byContents.Count > 0 ? (byContents.Count == 1 ? byContents[0] : null, "folder contents") : (null, string.Empty);
     }
 
-    private List<string> FolderContents(RemovalRecord folder)
-        => ChildRecords(folder).Select(d => Path.GetRelativePath(folder.MediaPath, d.MediaPath)).ToList();
+    private List<string> FolderContents(RemovalRecord folder, DateTime cutoff)
+        => ChildRecords(folder, cutoff).Select(d => Path.GetRelativePath(folder.MediaPath, d.MediaPath)).ToList();
 
-    private List<RemovalRecord> ChildRecords(RemovalRecord folder)
-    {
-        var parent = MirrorPaths.Normalize(folder.MediaPath);
-        return _records
-            .Where(d => d.Kind is MediaKind.Episode or MediaKind.Movie && MirrorPaths.IsUnder(parent, MirrorPaths.Normalize(d.MediaPath)))
-            .ToList();
-    }
+    private List<RemovalRecord> ChildRecords(RemovalRecord folder, DateTime cutoff)
+        => _byFolder.TryGetValue(MirrorPaths.Normalize(folder.MediaPath), out var list)
+            ? list.Where(d => d.RemovedUtc >= cutoff).ToList()
+            : [];
 
     private static bool SharesProviderId(IReadOnlyDictionary<string, string> a, IReadOnlyDictionary<string, string> b)
         => ProviderIdMatch.Shares(a, b);
@@ -177,11 +283,11 @@ public sealed class RenameTracker
         CreateParent(root, to);
         File.Move(from, to);
         PruneUpwards(root, Path.GetDirectoryName(from)!);
-        _records.Remove(record);
+        RemoveRecord(record);
         return new FollowResult(from, to, reason, 1, 0, true);
     }
 
-    private FollowResult? FollowFolder(string root, NewItem item, RemovalRecord record, string reason, FollowMode mode)
+    private FollowResult? FollowFolder(string root, NewItem item, RemovalRecord record, string reason, FollowMode mode, DateTime cutoff)
     {
         var sourceDir = Path.GetDirectoryName(record.MirrorPath)!;
         var targetDir = Path.GetDirectoryName(item.MirrorPath)!;
@@ -194,7 +300,9 @@ public sealed class RenameTracker
             }
         }
 
-        var files = Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories).ToList();
+        var files = Directory.EnumerateFiles(sourceDir, "*.nfo", SearchOption.AllDirectories)
+            .Where(f => f.EndsWith(".nfo", StringComparison.OrdinalIgnoreCase))
+            .ToList();
         if (mode == FollowMode.Preview)
         {
             var wouldConflict = files.Count(f => File.Exists(Path.Combine(targetDir, Path.GetRelativePath(sourceDir, f))));
@@ -222,11 +330,11 @@ public sealed class RenameTracker
         PruneBelow(root, sourceDir);
         PruneUpwards(root, sourceDir);
 
-        var children = ChildRecords(record);
-        _records.Remove(record);
+        var children = ChildRecords(record, cutoff);
+        RemoveRecord(record);
         foreach (var child in children)
         {
-            _records.Remove(child);
+            RemoveRecord(child);
         }
 
         return new FollowResult(sourceDir, targetDir, reason, moved, conflicts, true);

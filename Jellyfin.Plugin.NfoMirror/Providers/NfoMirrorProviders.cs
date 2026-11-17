@@ -144,7 +144,7 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
         try
         {
             var item = new NewItem(kind, info.Path, path, size, new Dictionary<string, string>());
-            var followed = _renameTracker.TryFollow(root, item, mode);
+            var followed = _renameTracker.TryFollow(root, item, mode, r => MirrorUse.InUse(_libraryManager, root, r));
             if (followed is null)
             {
                 return;

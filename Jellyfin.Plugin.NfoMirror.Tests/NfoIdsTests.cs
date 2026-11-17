@@ -37,6 +37,23 @@ public sealed class NfoIdsTests : IDisposable
     }
 
     [Fact]
+    public void IdElementWithChildKeepsTheOtherIdsAndRootNameIsReturned()
+    {
+        var ids = NfoIds.Read(Write("""
+            <movie>
+              <uniqueid type="imdb">tt1</uniqueid>
+              <uniqueid type="tmdb"><b>x</b></uniqueid>
+              <tvdbid>5</tvdbid>
+            </movie>
+            """), out var root);
+
+        Assert.Equal("movie", root);
+        Assert.Equal("tt1", ids["Imdb"]);
+        Assert.Equal("5", ids["Tvdb"]);
+        Assert.False(ids.ContainsKey("Tmdb"));
+    }
+
+    [Fact]
     public void LegacyImdbIdAndCaseInsensitiveKeys()
     {
         var ids = NfoIds.Read(Write("<movie><imdbid>tt1</imdbid><tmdbid>2</tmdbid></movie>"));

@@ -38,22 +38,29 @@ public class NfoMirrorController : ControllerBase
             return new CheckResponse(error, 0, 0, [], 0, [], 0);
         }
 
-        var inventory = MirrorInventory.Build(_libraryManager, root, null);
-        var expected = inventory.ExpectedMirrors();
-        var missing = inventory.Items
-            .Where(i => i.Mirror is not null && !System.IO.File.Exists(i.Mirror))
-            .Select(i => i.Mirror!)
-            .ToList();
+        try
+        {
+            var inventory = MirrorInventory.Build(_libraryManager, root, null);
+            var expected = inventory.ExpectedMirrors();
+            var missing = inventory.Items
+                .Where(i => i.Mirror is not null && !System.IO.File.Exists(i.Mirror))
+                .Select(i => i.Mirror!)
+                .ToList();
 
-        var orphansDir = Path.Combine(root, MirrorPaths.OrphansFolder);
-        var unmapped = Directory.EnumerateFiles(root, "*.nfo", SearchOption.AllDirectories)
-            .Where(p => !MirrorPaths.IsUnder(orphansDir, p) && !expected.Contains(p))
-            .ToList();
-        var orphans = Directory.Exists(orphansDir)
-            ? Directory.EnumerateFiles(orphansDir, "*.nfo", SearchOption.AllDirectories).Count()
-            : 0;
+            var orphansDir = Path.Combine(root, MirrorPaths.OrphansFolder);
+            var unmapped = Directory.EnumerateFiles(root, "*.nfo", SearchOption.AllDirectories)
+                .Where(p => !MirrorPaths.IsUnder(orphansDir, p) && !expected.Contains(p))
+                .ToList();
+            var orphans = Directory.Exists(orphansDir)
+                ? Directory.EnumerateFiles(orphansDir, "*.nfo", SearchOption.AllDirectories).Count()
+                : 0;
 
-        return new CheckResponse(null, inventory.Items.Count, missing.Count, missing.Take(MaxListed).ToList(), unmapped.Count, unmapped.Take(MaxListed).ToList(), orphans);
+            return new CheckResponse(null, inventory.Items.Count, missing.Count, missing.Take(MaxListed).ToList(), unmapped.Count, unmapped.Take(MaxListed).ToList(), orphans);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new CheckResponse(ex.Message, 0, 0, [], 0, [], 0);
+        }
     }
 }
 

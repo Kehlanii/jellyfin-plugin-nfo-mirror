@@ -28,6 +28,9 @@ public class PluginConfiguration : BasePluginConfiguration
     // Days a file stays in .orphans before full sync deletes it; 0 = never.
     public int OrphanRetentionDays { get; set; }
 
+    // Set once every pre-existing .orphans file got a fresh modification time.
+    public bool OrphanAgesStamped { get; set; }
+
     // Plugin version whose baseline (preview-only) sweep already ran.
     public string BaselineVersion { get; set; } = string.Empty;
 

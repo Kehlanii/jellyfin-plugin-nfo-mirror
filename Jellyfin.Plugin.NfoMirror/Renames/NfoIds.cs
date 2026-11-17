@@ -8,15 +8,24 @@ namespace Jellyfin.Plugin.NfoMirror.Renames;
 
 public static class NfoIds
 {
-    public static IReadOnlyDictionary<string, string> Read(string nfoPath)
+    public static IReadOnlyDictionary<string, string> Read(string nfoPath) => Read(nfoPath, out _);
+
+    public static IReadOnlyDictionary<string, string> Read(string nfoPath, out string? rootElement)
     {
         var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        rootElement = null;
         try
         {
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null };
             using var reader = XmlReader.Create(nfoPath, settings);
             reader.MoveToContent();
-            if (reader.NodeType != XmlNodeType.Element || reader.IsEmptyElement)
+            if (reader.NodeType != XmlNodeType.Element)
+            {
+                return ids;
+            }
+
+            rootElement = reader.LocalName;
+            if (reader.IsEmptyElement)
             {
                 return ids;
             }
@@ -46,11 +55,24 @@ public static class NfoIds
                     continue;
                 }
 
-                // Also advances past the element.
-                var value = reader.ReadElementContentAsString().Trim();
-                if (value.Length > 0)
+                try
                 {
-                    ids[key] = value;
+                    // Also advances past the element.
+                    var value = reader.ReadElementContentAsString().Trim();
+                    if (value.Length > 0)
+                    {
+                        ids[key] = value;
+                    }
+                }
+                catch (XmlException)
+                {
+                    // An id element with child elements: skip it, keep the ids already read.
+                    if (reader.ReadState != ReadState.Interactive)
+                    {
+                        return ids;
+                    }
+
+                    reader.Skip();
                 }
             }
 
@@ -58,7 +80,8 @@ public static class NfoIds
         }
         catch (Exception ex) when (ex is XmlException or InvalidOperationException or IOException or UnauthorizedAccessException)
         {
-            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // A broken document keeps what was read before the break.
+            return ids;
         }
     }
 

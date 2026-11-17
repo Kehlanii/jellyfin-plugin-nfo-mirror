@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Jellyfin.Plugin.NfoMirror.Sync;
 
-public static class OrphanSweep
+public static partial class OrphanSweep
 {
     public const double MaxOrphanShare = 0.20;
 
@@ -53,6 +54,26 @@ public static class OrphanSweep
         return new SweepResult(all.Count, orphans, moved, null);
     }
 
+    // Gives pre-1.2 orphans, which kept their old modification time, a purge age counted from now.
+    public static int StampAll(string root)
+    {
+        var orphansDir = Path.Combine(MirrorPaths.Normalize(root), MirrorPaths.OrphansFolder);
+        if (!Directory.Exists(orphansDir))
+        {
+            return 0;
+        }
+
+        var now = DateTime.UtcNow;
+        var count = 0;
+        foreach (var file in Directory.EnumerateFiles(orphansDir, "*", SearchOption.AllDirectories).ToList())
+        {
+            File.SetLastWriteTimeUtc(MirrorPaths.EnsureUnderRoot(root, file), now);
+            count++;
+        }
+
+        return count;
+    }
+
     public static IReadOnlyList<string> Purge(string root, TimeSpan maxAge, Func<DateTime>? clock = null)
     {
         var orphansDir = Path.Combine(MirrorPaths.Normalize(root), MirrorPaths.OrphansFolder);
@@ -63,7 +84,7 @@ public static class OrphanSweep
 
         var cutoff = (clock?.Invoke() ?? DateTime.UtcNow) - maxAge;
         var deleted = new List<string>();
-        foreach (var file in Directory.EnumerateFiles(orphansDir, "*.nfo", SearchOption.AllDirectories).ToList())
+        foreach (var file in Directory.EnumerateFiles(orphansDir, "*", SearchOption.AllDirectories).Where(IsSweepFile).ToList())
         {
             var guarded = MirrorPaths.EnsureUnderRoot(root, file);
             if (MirrorPaths.IsUnder(orphansDir, guarded) && File.GetLastWriteTimeUtc(guarded) < cutoff)
@@ -84,6 +105,16 @@ public static class OrphanSweep
 
         return deleted;
     }
+
+    // The NFOs and the timestamped copies Run creates when the orphan path is taken.
+    private static bool IsSweepFile(string path)
+    {
+        var name = Path.GetFileName(path);
+        return name.EndsWith(".nfo", StringComparison.OrdinalIgnoreCase) || TimestampedCopy().IsMatch(name);
+    }
+
+    [GeneratedRegex(@"\.nfo\.\d{14}$", RegexOptions.IgnoreCase)]
+    private static partial Regex TimestampedCopy();
 
     // Never overwrites a live NFO.
     public static IReadOnlyList<string> Restore(string root, IEnumerable<string> expected)
