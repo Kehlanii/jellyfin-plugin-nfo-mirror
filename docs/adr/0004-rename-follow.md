@@ -22,6 +22,8 @@ Jellyfin removes the old item before it adds the new one within a folder scan. T
 - **Rename-follow**: when the reader finds no NFO at a new item's mirror path, it looks for one matching removal record and moves the old NFO (for a Series or Season, every file in the old mirror folder) to the new mirror path, then reads it. Jellyfin then keeps the user's edits instead of scraping fresh metadata.
 - **Matching order**: same provider id; else same exact file size in bytes for a Movie or Episode; else, for a Series or Season, the same relative file names under the old and the new folder, and for a Movie or Episode the same file name under a renamed folder. More than one candidate is no match.
 - **Never overwrite**: a follow moves a file only when its target path is empty. Folder follows move file by file, so a partly followed folder still completes.
+- **Never take a used NFO**: before moving, the plugin checks the library for a current item that still maps to the old mirror path (another version sharing `movie.nfo`, or the same file with a new extension). If there is one, the record is dropped and nothing moves.
+- **Name and folder-contents matches need the old folder gone**, so a deleted show and a new show with the same generic episode names only match when the old show's folder no longer exists.
 - **No journal**: each follow is a single rename inside the NFO root, which is atomic on one filesystem; a crash cannot leave two copies or none.
 - **Setting**: Follow renames is On, Preview (list what would follow) or Off. The default is On, because following moves an NFO to its new home and deletes nothing.
 - **Late matches** (the new item was read before the old one was removed, for example a move between libraries scanned in the other order) are not followed. Full sync reports them as possible renames by matching `<uniqueid>` values in orphaned NFOs to current items' provider ids; it never replaces an existing NFO.
@@ -32,3 +34,4 @@ Jellyfin removes the old item before it adds the new one within a folder scan. T
 - Removal records live in memory only; a restart between the removal and the first read of the new item loses the match, which then shows up as a possible rename.
 - Followed NFOs are not orphans, so folder renames no longer trip the 20% sweep cap.
 - Test media in automated tests must have distinct file sizes, or size matching becomes ambiguous.
+- A show deleted and a different show added within six hours, with identical relative episode file names, can still be matched by folder contents. This is rare enough to accept; the moved NFOs can be fixed by refreshing the show's metadata.

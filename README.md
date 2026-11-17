@@ -63,7 +63,9 @@ An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usua
 
 - Off: the sweep does not run.
 - Preview (default): the sweep lists the NFOs that no item maps to and moves nothing. The config page shows the count and the first 100 paths.
-- Move: the sweep moves each orphan to `/NFO/.orphans/<same path>`. The plugin never deletes an NFO.
+- Move: the sweep moves each orphan to `/NFO/.orphans/<same path>`.
+
+"Delete orphans after (days)" on the config page deletes old files in `.orphans`. 0 means never and is the default. The age counts from when the sweep moved the file to `.orphans`. Only the full sync deletes, only inside `.orphans`, and only while the orphan sweep is Preview or Move. Nothing is deleted during the baseline sweep or when the sweep is skipped because a library root is unreachable or empty. The first full sync after upgrading to 1.2.0.0 stamps every file already in `.orphans` with the current time and purges nothing, so older orphans get the full N days too.
 
 The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
 
@@ -73,11 +75,47 @@ Orphans are auto-restored. If an item maps to a path again and no NFO is there, 
 
 Recommendation: run a full sync in Preview, check the list, then switch to Move.
 
+## Renames and moves
+
+When you rename or move a movie, an episode, a season folder or a show folder, Jellyfin removes the old item and adds a new one. That includes a move between libraries. NFO Mirror moves the existing NFO to the new mirror path during the library scan, before Jellyfin fetches fresh metadata, so the new item keeps your edited titles and ids.
+
+The plugin matches the new item to the removed one by provider id first, then by exact file size, then by file name. For a folder it compares the file names inside the folder. When more than one old item fits, the match is ambiguous and the plugin leaves the NFO alone.
+
+A follow never overwrites an NFO that already exists at the new path, and never takes an NFO that a current item still uses, such as the shared `movie.nfo` of another version in the old folder. A match by file name or by folder contents only counts when the old folder is gone.
+
+The setting "Follow renames" has three values:
+
+- On (default): follow each match.
+- Preview: list what would follow in the activity console and move nothing.
+- Off: do not follow.
+
+A container change, for example `.mkv` to `.mp4`, keeps its NFO anyway, because the mirror path does not change.
+
+If the new item is read before the old one is removed, for example a move between libraries that Jellyfin scans in the other order, nothing is moved. The full sync lists it as a "possible rename" in the activity console instead.
+
 ## Activity console
 
-The config page shows a live list of what the plugin did: files created, updated, restored, moved, would-move, skipped (with the reason) and failed. It also shows the saves that Jellyfin itself triggers on a metadata change. Unchanged files are only counted. The list can be filtered per kind.
+The config page shows a live list of what the plugin did: files created, updated, restored, followed, would-follow, possible rename, moved, would-move, purged, skipped (with the reason) and failed. It also shows the saves that Jellyfin itself triggers on a metadata change. Unchanged files are only counted. The list can be filtered per kind.
 
 The console is kept in memory only: the last 5000 events, cleared when Jellyfin restarts. The Jellyfin log has the permanent record. Moved and restored files, the first 50 skipped files per reason and the first 100 orphans of a preview are logged at Information level, failures at Error level, and each written file at Debug level.
+
+## Checking the mirror
+
+The plugin has a read-only endpoint for admins, `GET /NfoMirror/Check`, for example `http://host:8096/NfoMirror/Check`. It returns JSON:
+
+- `Error`: a message when the check could not run, empty otherwise.
+- `Items`: the number of items checked.
+- `MissingCount` and `Missing`: items without their NFO at the mirror path.
+- `UnmappedCount` and `Unmapped`: NFO files outside `.orphans` that no item maps to.
+- `Orphans`: the number of NFO files in `.orphans`. They are expected and are not counted as unmapped.
+
+`scripts/check-invariants.sh` calls the endpoint:
+
+```shell
+JELLYFIN_URL=http://host:8096 JELLYFIN_API_KEY=... scripts/check-invariants.sh
+```
+
+It exits 1 when any NFO is missing or unmapped.
 
 ## How it works
 

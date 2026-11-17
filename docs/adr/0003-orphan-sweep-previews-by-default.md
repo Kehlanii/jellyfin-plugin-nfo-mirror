@@ -30,5 +30,5 @@ Version 1.0.0.0 moved 240 of about 30,000 NFOs to `.orphans` on a real server. T
 The user asked for old orphans to be removed eventually. The "never deletes" rule now has one opt-in exception:
 
 - A setting deletes files in `.orphans` that were moved there more than N days ago. 0 means never and is the default.
-- The age counts from the move: the sweep stamps a file's modification time when it moves it to `.orphans`.
-- Only full sync purges, only inside `.orphans`, and never while the sweep is skipped for an unreachable or empty library root.
+- The age counts from the move: the sweep stamps a file's modification time when it moves it to `.orphans`. Files moved by older versions kept their old time, so the first full sync after the upgrade stamps everything already in `.orphans` once and purges nothing in that run.
+- Only full sync purges, only inside `.orphans`, never during the baseline sweep, and never while the sweep is Off or skipped for an unreachable or empty library root.
