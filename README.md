@@ -65,7 +65,7 @@ An orphan NFO is an `.nfo` under the NFO root that no current item maps to, usua
 - Preview (default): the sweep lists the NFOs that no item maps to and moves nothing. The config page shows the count and the first 100 paths.
 - Move: the sweep moves each orphan to `/NFO/.orphans/<same path>`.
 
-"Delete orphans after (days)" on the config page deletes old files in `.orphans`. 0 means never and is the default. The age counts from when the sweep moved the file to `.orphans`. Only the full sync deletes, only inside `.orphans`, and only while the orphan sweep is Preview or Move. Nothing is deleted during the baseline sweep or when the sweep is skipped because a library root is unreachable or empty. Files moved to `.orphans` by a version before 1.2.0.0 keep their old modification time, so they may be deleted on the first full sync after you set this.
+"Delete orphans after (days)" on the config page deletes old files in `.orphans`. 0 means never and is the default. The age counts from when the sweep moved the file to `.orphans`. Only the full sync deletes, only inside `.orphans`, and only while the orphan sweep is Preview or Move. Nothing is deleted during the baseline sweep or when the sweep is skipped because a library root is unreachable or empty. The first full sync after upgrading to 1.2.0.0 stamps every file already in `.orphans` with the current time and purges nothing, so older orphans get the full N days too.
 
 The first full sync after an install or upgrade always previews, whatever the mode says. That is the baseline, and it runs once per plugin version.
 
@@ -81,7 +81,7 @@ When you rename or move a movie, an episode, a season folder or a show folder, J
 
 The plugin matches the new item to the removed one by provider id first, then by exact file size, then by file name. For a folder it compares the file names inside the folder. When more than one old item fits, the match is ambiguous and the plugin leaves the NFO alone.
 
-A follow never overwrites an NFO that already exists at the new path.
+A follow never overwrites an NFO that already exists at the new path, and never takes an NFO that a current item still uses, such as the shared `movie.nfo` of another version in the old folder. A match by file name or by folder contents only counts when the old folder is gone.
 
 The setting "Follow renames" has three values:
 
