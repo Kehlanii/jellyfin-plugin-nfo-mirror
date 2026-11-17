@@ -15,7 +15,11 @@ public enum ActivityKind
     WouldMove,
     Skipped,
     Failed,
-    Finished
+    Finished,
+    Followed,
+    WouldFollow,
+    PossibleRename,
+    Purged
 }
 
 public sealed record ActivityEntry(long Seq, DateTime TimeUtc, ActivityKind Kind, string Message);

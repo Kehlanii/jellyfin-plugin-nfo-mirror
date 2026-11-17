@@ -46,10 +46,43 @@ public static class OrphanSweep
 
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             File.Move(MirrorPaths.EnsureUnderRoot(root, orphan), target);
+            File.SetLastWriteTimeUtc(target, DateTime.UtcNow);
             moved.Add(new MovedOrphan(orphan, target));
         }
 
         return new SweepResult(all.Count, orphans, moved, null);
+    }
+
+    public static IReadOnlyList<string> Purge(string root, TimeSpan maxAge, Func<DateTime>? clock = null)
+    {
+        var orphansDir = Path.Combine(MirrorPaths.Normalize(root), MirrorPaths.OrphansFolder);
+        if (!Directory.Exists(orphansDir))
+        {
+            return [];
+        }
+
+        var cutoff = (clock?.Invoke() ?? DateTime.UtcNow) - maxAge;
+        var deleted = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(orphansDir, "*.nfo", SearchOption.AllDirectories).ToList())
+        {
+            var guarded = MirrorPaths.EnsureUnderRoot(root, file);
+            if (MirrorPaths.IsUnder(orphansDir, guarded) && File.GetLastWriteTimeUtc(guarded) < cutoff)
+            {
+                File.Delete(guarded);
+                deleted.Add(guarded);
+            }
+        }
+
+        foreach (var dir in Directory.EnumerateDirectories(orphansDir, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length).ToList())
+        {
+            var guarded = MirrorPaths.EnsureUnderRoot(root, dir);
+            if (!Directory.EnumerateFileSystemEntries(guarded).Any())
+            {
+                Directory.Delete(guarded);
+            }
+        }
+
+        return deleted;
     }
 
     // Never overwrites a live NFO.

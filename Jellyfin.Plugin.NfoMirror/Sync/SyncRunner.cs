@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.NfoMirror.Activity;
 using Jellyfin.Plugin.NfoMirror.Configuration;
+using Jellyfin.Plugin.NfoMirror.Renames;
 using Jellyfin.Plugin.NfoMirror.Savers;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -78,47 +78,17 @@ public sealed class SyncRunner
         }
 
         var startedUtc = DateTime.UtcNow;
-        var libraryRoots = _libraryManager.GetVirtualFolders()
-            // Mixed Movies and Shows libraries report "mixed", or null when created without a type.
-            .Where(f => f.CollectionType is CollectionTypeOptions.movies or CollectionTypeOptions.tvshows or CollectionTypeOptions.mixed or null)
-            .SelectMany(f => f.Locations ?? [])
-            .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Select(MirrorPaths.Normalize)
-            .ToList();
-
-        // Default queries hide alternate versions and other owned items, but the saver writes NFOs for them too.
-        var query = new InternalItemsQuery
-        {
-            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Series, BaseItemKind.Season, BaseItemKind.Episode],
-            IsVirtualItem = false,
-            Recursive = true,
-            IncludeOwnedItems = true
-        };
         var since = kind == SyncKind.Changed ? config.LastChangedSyncStartUtc : null;
-        if (since is not null)
-        {
-            query.MinDateLastSaved = since;
-        }
-
-        var items = _libraryManager.GetItemList(query)
-            .Where(i => !string.IsNullOrEmpty(i.Path))
-            .OrderBy(i => IsSecondaryVersion(i) ? 1 : 0)
-            .Select(i => (Item: i, Mirror: MirrorPaths.GetMirrorPath(root, new ItemInfo(i))))
-            .ToList();
+        var inventory = MirrorInventory.Build(_libraryManager, root, since);
+        var items = inventory.Items;
+        var libraryRoots = inventory.LibraryRoots.ToList();
 
         var scope = since is null ? $"{items.Count} items" : $"{items.Count} items saved since {since:yyyy-MM-dd HH:mm:ss} UTC";
         _logger.LogInformation("NFO Mirror {Kind} started: root {Root}, {Scope}, video library roots: {Libraries}", Label(kind), root, scope, string.Join(", ", libraryRoots));
         Info($"{Capitalize(Label(kind))} started: {scope}, NFO root {root}.");
 
         // Expected covers every library, so NFOs the saver wrote elsewhere are never swept.
-        var expected = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var (_, mirror) in items)
-        {
-            if (mirror is not null)
-            {
-                expected.Add(mirror);
-            }
-        }
+        var expected = inventory.ExpectedMirrors();
 
         IReadOnlyList<string> restored = [];
         try
@@ -206,7 +176,7 @@ public sealed class SyncRunner
 
         if (kind == SyncKind.Full)
         {
-            summary += "; " + Sweep(root, expected, libraryRoots, config);
+            summary += "; " + Sweep(root, expected, libraryRoots, config, inventory);
         }
 
         // A clean full sync covers everything saved before it started, so the changed sync can start from there too.
@@ -221,7 +191,7 @@ public sealed class SyncRunner
         SaveResult(kind, summary + ".");
     }
 
-    private string Sweep(string root, HashSet<string> expected, List<string> libraryRoots, PluginConfiguration config)
+    private string Sweep(string root, HashSet<string> expected, List<string> libraryRoots, PluginConfiguration config, MirrorInventory inventory)
     {
         if (config.SweepMode == SweepMode.Off)
         {
@@ -277,6 +247,25 @@ public sealed class SyncRunner
             });
         }
 
+        var text = SweepSummary(sweep, baseline, move, version);
+
+        var renames = FindPossibleRenames(sweep, inventory);
+        if (renames > 0)
+        {
+            text += $", {renames} possible renames";
+        }
+
+        var purged = Purge(root, config, sweep);
+        if (purged > 0)
+        {
+            text += $", {purged} purged from {MirrorPaths.OrphansFolder}";
+        }
+
+        return text;
+    }
+
+    private string SweepSummary(SweepResult sweep, bool baseline, bool move, string version)
+    {
         if (baseline && sweep.SkippedReason is null)
         {
             _configChanges.Add(c => c.BaselineVersion = version);
@@ -293,8 +282,62 @@ public sealed class SyncRunner
             : $"preview: {sweep.Orphans.Count} of {sweep.Total} NFOs would move to {MirrorPaths.OrphansFolder}";
     }
 
-    private static bool IsSecondaryVersion(BaseItem item)
-        => !item.OwnerId.Equals(Guid.Empty) || item is Video { PrimaryVersionId: not null };
+    private int FindPossibleRenames(SweepResult sweep, MirrorInventory inventory)
+    {
+        var count = 0;
+        var movedTo = sweep.MovedFiles.ToDictionary(m => m.From, m => m.To, StringComparer.Ordinal);
+        foreach (var orphan in sweep.Orphans)
+        {
+            var ids = NfoIds.Read(movedTo.GetValueOrDefault(orphan, orphan));
+            if (ids.Count == 0)
+            {
+                continue;
+            }
+
+            var matches = inventory.Items
+                .Where(i => i.Mirror is not null && ProviderIdMatch.Shares(ids, i.Item.ProviderIds) && File.Exists(i.Mirror))
+                .Take(2)
+                .ToList();
+            if (matches.Count != 1)
+            {
+                continue;
+            }
+
+            count++;
+            _logger.LogInformation("NFO Mirror possible rename: {Orphan} -> {Mirror}", orphan, matches[0].Mirror);
+            ActivityLog.Add(ActivityKind.PossibleRename, $"{orphan} -> {matches[0].Mirror}");
+        }
+
+        return count;
+    }
+
+    private int Purge(string root, PluginConfiguration config, SweepResult sweep)
+    {
+        if (config.OrphanRetentionDays <= 0 || sweep.SkippedReason is not null)
+        {
+            return 0;
+        }
+
+        IReadOnlyList<string> deleted;
+        try
+        {
+            deleted = OrphanSweep.Purge(root, TimeSpan.FromDays(config.OrphanRetentionDays));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            _logger.LogError(ex, "NFO Mirror could not purge {Orphans}", MirrorPaths.OrphansFolder);
+            ActivityLog.Add(ActivityKind.Failed, $"Purge {MirrorPaths.OrphansFolder}: {ex.Message}");
+            return 0;
+        }
+
+        foreach (var path in deleted)
+        {
+            _logger.LogInformation("NFO Mirror purged {Path}", path);
+            ActivityLog.Add(ActivityKind.Purged, path);
+        }
+
+        return deleted.Count;
+    }
 
     private static string Label(SyncKind kind) => kind == SyncKind.Full ? "full sync" : "changed sync";
 

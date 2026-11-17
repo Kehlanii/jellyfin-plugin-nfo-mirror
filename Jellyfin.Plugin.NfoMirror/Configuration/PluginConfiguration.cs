@@ -10,11 +10,23 @@ public enum SweepMode
     Move
 }
 
+public enum FollowMode
+{
+    Off,
+    Preview,
+    On
+}
+
 public class PluginConfiguration : BasePluginConfiguration
 {
     public string NfoRoot { get; set; } = "/NFO";
 
     public SweepMode SweepMode { get; set; } = SweepMode.Preview;
+
+    public FollowMode FollowRenames { get; set; } = FollowMode.On;
+
+    // Days a file stays in .orphans before full sync deletes it; 0 = never.
+    public int OrphanRetentionDays { get; set; }
 
     // Plugin version whose baseline (preview-only) sweep already ran.
     public string BaselineVersion { get; set; } = string.Empty;

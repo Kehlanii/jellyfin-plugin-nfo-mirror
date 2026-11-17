@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.NfoMirror.Activity;
+using Jellyfin.Plugin.NfoMirror.Configuration;
+using Jellyfin.Plugin.NfoMirror.Renames;
 using Jellyfin.Plugin.NfoMirror.Sync;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Entities;
@@ -19,6 +22,7 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
     where T : BaseItem, new()
 {
     private readonly ILibraryManager _libraryManager;
+    private readonly RenameTracker _renameTracker;
 
     protected NfoMirrorProvider(
         ILogger logger,
@@ -26,7 +30,8 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
         IProviderManager providerManager,
         IUserManager userManager,
         IUserDataManager userDataManager,
-        ILibraryManager libraryManager)
+        ILibraryManager libraryManager,
+        RenameTracker renameTracker)
     {
         Logger = logger;
         Config = config;
@@ -34,6 +39,7 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
         UserManager = userManager;
         UserDataManager = userDataManager;
         _libraryManager = libraryManager;
+        _renameTracker = renameTracker;
     }
 
     public string Name => Plugin.ProviderName;
@@ -74,6 +80,11 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
 
         if (!File.Exists(path))
         {
+            TryFollow(root, info, path);
+        }
+
+        if (!File.Exists(path))
+        {
             return Task.FromResult(result);
         }
 
@@ -106,6 +117,58 @@ public abstract class NfoMirrorProvider<T> : ILocalMetadataProvider<T>, IHasItem
 
     protected abstract void Fetch(MetadataResult<T> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken);
 
+    private void TryFollow(string root, ItemInfo info, string path)
+    {
+        var mode = Plugin.Instance?.Configuration.FollowRenames ?? FollowMode.On;
+        var kind = typeof(T) == typeof(Movie) ? MediaKind.Movie
+            : typeof(T) == typeof(Series) ? MediaKind.Series
+            : typeof(T) == typeof(Season) ? MediaKind.Season
+            : MediaKind.Episode;
+
+        long? size = null;
+        if (kind is MediaKind.Movie or MediaKind.Episode)
+        {
+            try
+            {
+                if (File.Exists(info.Path))
+                {
+                    size = new FileInfo(info.Path).Length;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                size = null;
+            }
+        }
+
+        try
+        {
+            var item = new NewItem(kind, info.Path, path, size, new Dictionary<string, string>());
+            var followed = _renameTracker.TryFollow(root, item, mode);
+            if (followed is null)
+            {
+                return;
+            }
+
+            var conflicts = followed.Conflicts > 0 ? $", {followed.Conflicts} kept at target" : string.Empty;
+            var text = $"{followed.From} -> {followed.To} ({followed.Reason}, {followed.Files} file(s){conflicts})";
+            if (followed.Moved)
+            {
+                Logger.LogInformation("NFO Mirror followed {From} to {To} ({Reason})", followed.From, followed.To, followed.Reason);
+                ActivityLog.Add(ActivityKind.Followed, text);
+            }
+            else
+            {
+                ActivityLog.Add(ActivityKind.WouldFollow, text);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            Logger.LogWarning(ex, "NFO Mirror could not follow a rename to {Path}", path);
+            ActivityLog.Add(ActivityKind.Failed, $"{path}: rename-follow failed: {ex.Message}");
+        }
+    }
+
     private (string? Root, string? Path) GetMirrorFile(ItemInfo info)
     {
         var root = NfoRoot.TryGet(_libraryManager, out _);
@@ -119,8 +182,9 @@ public class NfoMirrorMovieProvider(
     IProviderManager providerManager,
     IUserManager userManager,
     IUserDataManager userDataManager,
-    ILibraryManager libraryManager)
-    : NfoMirrorProvider<Movie>(logger, config, providerManager, userManager, userDataManager, libraryManager)
+    ILibraryManager libraryManager,
+    RenameTracker renameTracker)
+    : NfoMirrorProvider<Movie>(logger, config, providerManager, userManager, userDataManager, libraryManager, renameTracker)
 {
     protected override void Fetch(MetadataResult<Movie> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken)
     {
@@ -140,8 +204,9 @@ public class NfoMirrorSeriesProvider(
     IProviderManager providerManager,
     IUserManager userManager,
     IUserDataManager userDataManager,
-    ILibraryManager libraryManager)
-    : NfoMirrorProvider<Series>(logger, config, providerManager, userManager, userDataManager, libraryManager)
+    ILibraryManager libraryManager,
+    RenameTracker renameTracker)
+    : NfoMirrorProvider<Series>(logger, config, providerManager, userManager, userDataManager, libraryManager, renameTracker)
 {
     protected override void Fetch(MetadataResult<Series> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken)
         => new SeriesNfoParser(Logger, Config, ProviderManager, UserManager, UserDataManager, directoryService).Fetch(result, path, cancellationToken);
@@ -153,8 +218,9 @@ public class NfoMirrorSeasonProvider(
     IProviderManager providerManager,
     IUserManager userManager,
     IUserDataManager userDataManager,
-    ILibraryManager libraryManager)
-    : NfoMirrorProvider<Season>(logger, config, providerManager, userManager, userDataManager, libraryManager)
+    ILibraryManager libraryManager,
+    RenameTracker renameTracker)
+    : NfoMirrorProvider<Season>(logger, config, providerManager, userManager, userDataManager, libraryManager, renameTracker)
 {
     protected override void Fetch(MetadataResult<Season> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken)
         => new SeasonNfoParser(Logger, Config, ProviderManager, UserManager, UserDataManager, directoryService).Fetch(result, path, cancellationToken);
@@ -166,8 +232,9 @@ public class NfoMirrorEpisodeProvider(
     IProviderManager providerManager,
     IUserManager userManager,
     IUserDataManager userDataManager,
-    ILibraryManager libraryManager)
-    : NfoMirrorProvider<Episode>(logger, config, providerManager, userManager, userDataManager, libraryManager)
+    ILibraryManager libraryManager,
+    RenameTracker renameTracker)
+    : NfoMirrorProvider<Episode>(logger, config, providerManager, userManager, userDataManager, libraryManager, renameTracker)
 {
     protected override void Fetch(MetadataResult<Episode> result, string path, IDirectoryService directoryService, CancellationToken cancellationToken)
         => new EpisodeNfoParser(Logger, Config, ProviderManager, UserManager, UserDataManager, directoryService).Fetch(result, path, cancellationToken);

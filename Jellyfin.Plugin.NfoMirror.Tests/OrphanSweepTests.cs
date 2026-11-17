@@ -200,6 +200,60 @@ public sealed class OrphanSweepTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(_root, MirrorPaths.OrphansFolder)));
     }
 
+    [Fact]
+    public void MovedOrphanGetsFreshModifiedTime()
+    {
+        var expected = CreateExpectedFiles();
+        var orphan = WriteNfo("shows/Stary Serial/tvshow.nfo");
+        File.SetLastWriteTimeUtc(orphan, DateTime.UtcNow.AddDays(-30));
+
+        var result = OrphanSweep.Run(_root, expected, new[] { _libraryRoot }, move: true);
+
+        var moved = Assert.Single(result.MovedFiles).To;
+        Assert.True(DateTime.UtcNow - File.GetLastWriteTimeUtc(moved) < TimeSpan.FromMinutes(5));
+    }
+
+    [Fact]
+    public void PurgeDeletesOnlyOldFilesUnderOrphans()
+    {
+        var old = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/old.nfo");
+        var fresh = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/fresh.nfo");
+        var live = WriteNfo("movies/live.nfo");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-40));
+        File.SetLastWriteTimeUtc(live, DateTime.UtcNow.AddDays(-40));
+
+        var deleted = OrphanSweep.Purge(_root, TimeSpan.FromDays(30));
+
+        Assert.Equal(old, Assert.Single(deleted));
+        Assert.False(File.Exists(old));
+        Assert.True(File.Exists(fresh));
+        Assert.True(File.Exists(live));
+    }
+
+    [Fact]
+    public void PurgeWithNothingOldDeletesNothing()
+    {
+        var fresh = WriteNfo($"{MirrorPaths.OrphansFolder}/movies/fresh.nfo");
+
+        Assert.Empty(OrphanSweep.Purge(_root, TimeSpan.FromDays(30)));
+        Assert.Empty(OrphanSweep.Purge(Path.Combine(_baseDir, "nfo-none"), TimeSpan.FromDays(1)));
+        Assert.True(File.Exists(fresh));
+    }
+
+    [Fact]
+    public void PurgePrunesEmptyDirectoriesButKeepsOrphansFolder()
+    {
+        var old = WriteNfo($"{MirrorPaths.OrphansFolder}/shows/Show/Season 1/e1.nfo");
+        File.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddDays(-2));
+        Directory.CreateDirectory(Path.Combine(_root, MirrorPaths.OrphansFolder, "empty"));
+
+        OrphanSweep.Purge(_root, TimeSpan.FromDays(1));
+
+        var orphans = Path.Combine(_root, MirrorPaths.OrphansFolder);
+        Assert.True(Directory.Exists(orphans));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(orphans));
+    }
+
     private HashSet<string> CreateExpectedFiles()
         => new(StringComparer.Ordinal)
         {
